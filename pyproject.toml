@@ -28,6 +28,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["app/db/migrations/versions"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
