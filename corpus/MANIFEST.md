@@ -78,8 +78,10 @@ explaining a code's meaning outside its one proper deep-answer document.
 
 No document ever states that information is unavailable. Three flavors of absence:
 
-1. **Full topic absence.** No refunds or chargebacks service or documentation exists
-   anywhere in the corpus.
+1. **Full topic absence.** Chargebacks and multi-currency payment processing are
+   never mentioned anywhere in the corpus. Refund initiation is mentioned once, as
+   an API capability in the Payments service documentation, but no refund
+   procedure, timing, or SLA is documented anywhere.
 2. **Scope-boundary absence.** The Notifications service doc and runbook only cover
    email and SMS. Push notifications are never mentioned.
 3. **Adjacent-but-not-covered absence.** The Data Retention and Access Policy exists

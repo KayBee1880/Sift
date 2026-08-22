@@ -1,0 +1,859 @@
+# Sift golden evaluation query set (v1, in progress).
+# Schema and authoring rules: .private/evaluation-methodology.md (not public).
+# Ground truth is anchored at document + section, never chunk.
+# Authored and reviewed in batches; category counts tracked against the locked
+# 46-query distribution as batches land.
+
+- id: q001
+  query: "What channels does the Notifications service use to send messages to customers?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "service_docs/notifications"
+        section: "Overview"
+    acceptable:
+      - document: "runbooks/notifications-delivery-failure"
+        section: "Purpose"
+        reason: "States 'email or SMS' directly in its purpose line; not its main function, but it independently and correctly answers this question if retrieved instead."
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "The Notifications service delivers messages via email and SMS."
+
+- id: q002
+  query: "We're seeing Payments API gateway timeouts right now, and database connection pool utilization is showing sustained high usage. Have we dealt with something like this before?"
+  category: near_duplicate
+  hard_case: HC1-pairA
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Evidence"
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Root Cause"
+    acceptable: []
+    relevant_insufficient:
+      - document: "runbooks/payments-gateway-timeout-troubleshooting"
+        section: "Common Causes"
+        reason: "Names connection pool exhaustion as a known historical cause category, but doesn't confirm or detail this specific past incident, insufficient alone to answer 'have we seen this before.'"
+    known_distractors:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: null
+        reason: "Same service, same symptom class (504 timeout, checkout failures), but the actual cause is certificate expiry, not connection pool exhaustion. A retriever matching on surface symptom similarity risks surfacing this instead of, or above, the correct incident."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches a documented incident (connection pool exhaustion) where a deploy reset the pool size from 100 to 20."
+    - "Resolved by reverting the connection pool configuration."
+
+- id: q003
+  query: "A customer says their push notification for an order confirmation never arrived. What's our troubleshooting process for push notification delivery?"
+  category: unanswerable
+  hard_case: HC4-scope-boundary
+  query_form: null
+  ground_truth:
+    required: []
+    acceptable: []
+    relevant_insufficient:
+      - document: "runbooks/notifications-delivery-failure"
+        section: "Purpose"
+        reason: "Topically about notification delivery failures and plausibly retrieved on semantic similarity, but explicitly and only covers email/SMS."
+      - document: "service_docs/notifications"
+        section: "Overview"
+        reason: "Establishes the service's actual scope (email and SMS only), which is what makes clear push notifications are unsupported, but doesn't itself answer a push-notification troubleshooting question."
+    known_distractors: []
+  expected_behavior: abstain
+  expected_facts: []
+
+- id: q004
+  query: "How long do we keep the raw event data that feeds the Analytics dashboards before it gets purged?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "policies/data-retention-and-access"
+        section: "Retention Periods"
+    acceptable: []
+    relevant_insufficient:
+      - document: "architecture/checkout-to-analytics-data-flow"
+        section: "Data Model"
+        reason: "Confirms raw event data is retained separately from aggregated tables and points to the retention policy, but doesn't itself state the actual retention period."
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Raw event logs feeding Analytics are retained for 90 days."
+
+- id: q005
+  query: "If a Checkout release goes bad, what's the actual process to roll it back?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-deployment-rollback"
+        section: "Rollback Steps"
+    acceptable:
+      - document: "deployment_guides/standard-deployment-procedure"
+        section: "Rollback"
+        reason: "States the general rollback principle (any service can roll back through deployment tooling, and should be the first response), a reasonable but less specific answer."
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Identify the previous stable release, trigger a rollback deploy to it, and confirm order submission error rates return to baseline within 10 minutes."
+
+- id: q006
+  query: "Is there any chance a compromise of the session store would expose user passwords?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "faqs/authentication-faq"
+        section: "Does Authentication store passwords in Redis?"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "No, Redis only holds active session tokens; credentials are validated against the separate account store and never written to Redis."
+
+- id: q007
+  query: "Do Checkout's frontend and backend deploys always get rolled back together?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-deployment-rollback"
+        section: "Frontend and Backend Coordination"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "No, frontend and backend ship on independent release cadences, so you need to confirm which side introduced a regression before deciding what to roll back."
+
+- id: q008
+  query: "Who's actually allowed to query raw, non-aggregated transaction data?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "policies/data-retention-and-access"
+        section: "Access Control"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Access to raw transaction and order data is restricted to the Payments and Checkout teams and a limited set of support engineers with a documented business need."
+
+- id: q009
+  query: "What severity would we classify an outage that takes down login for essentially every user?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "policies/incident-severity-classification"
+        section: "Severity Levels"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "SEV1, a complete or near-complete outage of a core user-facing flow like login affecting all or nearly all users."
+
+- id: q010
+  query: "How far behind real-time should I expect the Analytics dashboards to be under normal conditions?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "architecture/checkout-to-analytics-data-flow"
+        section: "Expected Latency"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Up to two hours, matching the ETL pipeline's run frequency, and that lag is normal, not itself an indication of a problem."
+
+- id: q011
+  query: "What has to happen before a code change to any service can actually ship to production?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "deployment_guides/standard-deployment-procedure"
+        section: "Pre-Deploy Requirements"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Review and approval by at least one other engineer, an explicit call-out of any configuration, resource limit, or integration changes in the review description, and passing automated tests."
+
+- id: q012
+  query: "If the ETL pipeline fails once, does it just fix itself on the next scheduled run?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/analytics-etl-pipeline-recovery"
+        section: "Resolution Steps"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Only if the failure was transient; if runs keep failing at the same checkpoint, the checkpoint state needs to be manually cleared, it won't resolve itself."
+
+- id: q013
+  query: "What's a sane way to decide how big a new service's database connection pool should be?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "deployment_guides/database-connection-pool-guidelines"
+        section: "Sizing Guidelines"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Size it to comfortably exceed measured peak concurrent database operations, with headroom for traffic growth and short-term spikes."
+
+- id: q014
+  query: "Which team do I go bug if something's wrong with the Payments service?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "service_docs/payments"
+        section: "Ownership"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "The Payments team, with a 24/7 pager for SEV1 and SEV2 incidents."
+
+- id: q015
+  query: "If there's a problem with the actual card network connection, is that a Checkout bug or a Payments bug?"
+  category: straightforward
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "service_docs/checkout"
+        section: "Dependencies"
+    acceptable:
+      - document: "faqs/payments-checkout-faq"
+        section: "Does Checkout ever talk to the card network directly?"
+        reason: "Directly and independently answers the same question in different phrasing."
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Only Payments communicates with the external payment processor; Checkout doesn't process card details itself, so that would be a Payments-side issue."
+
+- id: q016
+  query: "Given how badly customers were affected by the payment processor certificate incident, does SEV2 seem like the right severity call, or should that have been escalated higher?"
+  category: multi_document
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: "Impact"
+      - document: "policies/incident-severity-classification"
+        section: "Severity Levels"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "The incident's peak error rate was 60% with about 6,100 failed checkout attempts, which fits the policy's SEV2 definition (large proportion of users, not a complete outage) rather than SEV1 (near-complete outage affecting nearly all users)."
+
+- id: q017
+  query: "The gateway timeout incident happened right as a marketing-driven traffic spike hit. Is the connection pool normally sized with that kind of spike in mind, or was this simply outside what it's designed to handle?"
+  category: multi_document
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Root Cause"
+      - document: "architecture/payments-internals"
+        section: "Database Access"
+    acceptable: []
+    relevant_insufficient:
+      - document: "deployment_guides/database-connection-pool-guidelines"
+        section: "Sizing Guidelines"
+        reason: "States the general principle that pool sizing should include spike headroom, but doesn't confirm Payments' own documented baseline or that a spike actually coincided with this incident."
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "The Payments connection pool is normally configured to 100 specifically to have headroom for traffic spikes such as marketing campaigns."
+    - "During the incident, the pool had been unintentionally reduced to 20 by a deploy shortly before the spike began, so it was well outside its intended spike-ready configuration, not a case of a spike simply exceeding a properly sized pool."
+
+- id: q018
+  query: "Looking back at the connection pool incident, did that deploy actually follow what we're supposed to do when a change affects resource configuration, even as a side effect?"
+  category: multi_document
+  hard_case: null
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Root Cause"
+      - document: "deployment_guides/database-connection-pool-guidelines"
+        section: "Change Management"
+    acceptable:
+      - document: "deployment_guides/standard-deployment-procedure"
+        section: "Pre-Deploy Requirements"
+        reason: "States the same general requirement (call out configuration-affecting changes in review) in broader, less pool-specific form."
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "No, the pool size change was an inadvertent side effect of an unrelated configuration file cleanup and was not called out in review, exactly the scenario the change management guidance says should be flagged explicitly."
+
+- id: q019
+  query: "Payments API calls are timing out, and the outbound request durations to the payment processor are clustering right around what looks like our connection timeout value. Is that a known issue?"
+  category: near_duplicate
+  hard_case: HC1-pairA
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: "Evidence"
+    acceptable: []
+    relevant_insufficient:
+      - document: "runbooks/payments-gateway-timeout-troubleshooting"
+        section: "Diagnostic Steps"
+        reason: "Describes checking outbound request duration as a general diagnostic step, but doesn't confirm this specific past incident."
+    known_distractors:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: null
+        reason: "Same service and symptom class (gateway timeout), but that incident's evidence is pool utilization, not outbound request duration, its own evidence explicitly rules out a processor-connectivity cause."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the certificate expiry incident, where an expired TLS client certificate caused outbound calls to hang for the full handshake timeout instead of failing fast."
+
+- id: q020
+  query: "We shipped a deploy about ten minutes before Payments started throwing gateway timeouts. Could that be related to something we've seen before?"
+  category: near_duplicate
+  hard_case: HC1-pairA
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Timeline"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: null
+        reason: "Same symptom class, but that incident explicitly had no deploy in the preceding 24 hours, a retriever weighting general 'Payments gateway timeout' similarity over the deploy-correlation detail could surface this incorrectly."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the connection pool exhaustion incident, where a deploy seven minutes before the traffic spike inadvertently reset the pool size, causing requests to queue past the gateway timeout."
+
+- id: q021
+  query: "Payments is timing out badly right now, but as far as I can tell nothing was deployed in the last day. What else could cause this?"
+  category: near_duplicate
+  hard_case: HC1-pairA
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: "Evidence"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: null
+        reason: "Same symptom class, but that incident's cause was directly deploy-correlated, the absence of a recent deploy specifically points away from it."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the certificate expiry incident, which had no deploy or configuration change in the preceding 24 hours, the cause was an expired outbound TLS certificate."
+
+- id: q022
+  query: "The on-call dashboard shows the Payments database connection pool pegged at max capacity during this timeout spike. Does that match a specific incident?"
+  category: near_duplicate
+  hard_case: HC1-pairA
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Evidence"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: null
+        reason: "Same symptom class, but that incident's own evidence explicitly notes database connection pool utilization stayed normal throughout."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the connection pool exhaustion incident, where pool utilization sat at 100% continuously from the start of elevated error rates."
+
+- id: q023
+  query: "We're getting a wave of login failure tickets, and they all seem to be coming from two of our office locations specifically, not general users. Seen this pattern before?"
+  category: near_duplicate
+  hard_case: HC1-pairB
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-rate-limiter"
+        section: "Evidence"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/auth-login-failures-session-store"
+        section: null
+        reason: "Same service and symptom (login failures), but that incident's impact was broadly distributed across all networks with no clustering by office or IP range."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the rate limiter incident, where a WAF rule change treated shared corporate office IP addresses as a single abusive client and began rejecting legitimate logins from those networks."
+
+- id: q024
+  query: "Users are reporting they were logged in fine a few minutes ago and are now suddenly being kicked out or can't log back in, and it's happening across the board, not one office or region. What's going on?"
+  category: near_duplicate
+  hard_case: HC1-pairB
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Summary"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/auth-login-failures-rate-limiter"
+        section: null
+        reason: "Same service and symptom, but that incident's impact was concentrated on two specific corporate networks, not broadly distributed."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the session store incident, where Redis session eviction under memory pressure invalidated active sessions broadly across all networks and regions."
+
+- id: q025
+  query: "There was a WAF or firewall rule change earlier today, and now we're seeing login failures. Could those be connected?"
+  category: near_duplicate
+  hard_case: HC1-pairB
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-rate-limiter"
+        section: "Root Cause"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/auth-login-failures-session-store"
+        section: null
+        reason: "Same symptom, but that incident's evidence explicitly confirms no WAF or rate limit configuration change occurred in the preceding 48 hours."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the rate limiter incident, where a WAF rule update applied per-IP rate limits that didn't account for shared corporate network addresses."
+
+- id: q026
+  query: "Our session store's memory usage has been creeping up all day and just crossed a high-water mark, right around when login failure reports started. Related?"
+  category: near_duplicate
+  hard_case: HC1-pairB
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Evidence"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/auth-login-failures-rate-limiter"
+        section: null
+        reason: "Same symptom, but that incident's evidence explicitly confirms Redis session store memory utilization stayed normal throughout."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the session store incident, where Redis memory utilization climbed to its limit and began evicting active sessions under its LRU policy."
+
+- id: q027
+  query: "Login failures are up but they're not limited to any particular office or network, and we haven't touched any WAF or rate limit rules recently. What should I be checking?"
+  category: near_duplicate
+  hard_case: HC1-pairB
+  query_form: null
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Evidence"
+    acceptable: []
+    relevant_insufficient:
+      - document: "runbooks/auth-login-failure-triage"
+        section: "Diagnostic Steps"
+        reason: "Gives general triage steps consistent with a session-store cause, but doesn't confirm this specific past incident."
+    known_distractors:
+      - document: "incidents/auth-login-failures-rate-limiter"
+        section: null
+        reason: "Same service and login-failure symptom, a plausible surface match despite the query's own negation ('not limited to any office,' 'haven't touched WAF rules'), since embedding-based retrieval is known to handle negation poorly. Distinguished by this incident's own record contradicting both stated observations: it was network-clustered by two specific corporate IPs, and it was caused by a recent WAF rule change, the opposite of what the query describes."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches the session store incident, check Redis session store memory utilization and eviction metrics."
+
+- id: q028
+  query: "A customer says their payment was declined, but I don't see any record of the order ever hitting the Payments API, just a fraud score logged against it. What does that mean?"
+  category: adjacent_service
+  hard_case: HC2
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "Diagnostic Steps"
+    acceptable:
+      - document: "faqs/payments-checkout-faq"
+        section: "A customer says their payment was declined. Where do I even start?"
+        reason: "Directly and independently explains that an order can be stopped by fraud screening before Payments is ever involved."
+    relevant_insufficient: []
+    known_distractors:
+      - document: "runbooks/payments-decline-troubleshooting"
+        section: null
+        reason: "Same customer-facing 'declined' symptom and shared Checkout/Payments vocabulary, but that runbook assumes the request already reached Payments, which the absent Payments record rules out here."
+  expected_behavior: answer
+  expected_facts:
+    - "The absence of a Payments API call confirms this was rejected by Checkout's fraud precheck before ever reaching Payments; the fraud score field indicates which factor drove the rejection."
+
+- id: q029
+  query: "This order shows a completed Payments transaction with a response received from the processor, but the charge still didn't go through. What would cause that?"
+  category: adjacent_service
+  hard_case: HC2
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/payments-decline-troubleshooting"
+        section: "How Issuer Declines Work"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: null
+        reason: "Same 'declined' symptom, but a fraud precheck rejection never produces a Payments transaction record or a processor response, both of which are present here."
+  expected_behavior: answer
+  expected_facts:
+    - "Since Payments received a response from the processor, this is an issuer decline, the card-issuing bank rejected the charge for a reason such as insufficient funds, an expired card, or a fraud hold on their end, not something resolvable on our side."
+
+- id: q030
+  query: "We rejected an order because the billing and shipping addresses didn't match. Is that something Payments handles, or is that decided before it even gets there?"
+  category: adjacent_service
+  hard_case: HC2
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "How the Fraud Precheck Works"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "runbooks/payments-decline-troubleshooting"
+        section: null
+        reason: "Shares the general 'order rejected' topic, but address mismatch is a fraud-scoring factor evaluated by Checkout, not an issuer decline reason."
+  expected_behavior: answer
+  expected_facts:
+    - "Billing/shipping address mismatch is one of the factors in Checkout's own fraud precheck score, decided before any request reaches Payments."
+
+- id: q031
+  query: "A customer's card was declined for insufficient funds according to what we can see. Is there anything on our end we should be checking, or is that entirely on the issuer?"
+  category: adjacent_service
+  hard_case: HC2
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/payments-decline-troubleshooting"
+        section: "Resolution Steps"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: null
+        reason: "Shares the general decline topic, but insufficient funds is an issuer response reason, not one of Checkout's fraud precheck scoring factors."
+  expected_behavior: answer
+  expected_facts:
+    - "Issuer declines like insufficient funds aren't resolvable on our end; standard guidance is for the customer to contact their card issuer or try a different card, and not to auto-retry the same card."
+
+- id: q032
+  query: "A customer tried to place three orders in the last two minutes and all three were rejected instantly, no delay at all. Would that get flagged before Payments even sees it?"
+  category: adjacent_service
+  hard_case: HC2
+  query_form: null
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "How the Fraud Precheck Works"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "runbooks/payments-decline-troubleshooting"
+        section: null
+        reason: "Shares the general rejection topic, but rapid repeat order velocity is a fraud precheck scoring factor evaluated by Checkout, and the instant rejection (no processor round-trip delay) is itself a signal it never reached Payments."
+  expected_behavior: answer
+  expected_facts:
+    - "Unusually rapid repeat order attempts from the same account is one of the factors Checkout's fraud precheck scores on, and a rejection at this stage happens before any Payments API call, which is consistent with the instant, no-delay rejection described."
+
+- id: q033
+  query: "What does error code PAY-1042 mean and how do I fix it?"
+  category: exact_code
+  hard_case: HC3-PAY-1042
+  query_form: exact_identifier
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Evidence"
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Resolution"
+    acceptable: []
+    relevant_insufficient:
+      - document: "service_docs/payments"
+        section: "Common Error Codes"
+        reason: "Confirms the code's one-line meaning, but not the fix, insufficient alone to answer the compound 'what does it mean and how do I fix it' question."
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "PAY-1042 means the database connection pool was exhausted; the fix applied was reverting the pool size configuration back to 100."
+
+- id: q034
+  query: "We're seeing PAY-1042 errors in the Payments logs during a period of high checkout traffic. What should I check?"
+  category: exact_code
+  hard_case: HC3-PAY-1042
+  query_form: identifier_plus_context
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Evidence"
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Resolution"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Check connection pool utilization metrics and whether a recent deploy changed the pool configuration, this matches a prior incident caused by exactly that."
+
+- id: q035
+  query: "Our database connection pool for Payments is completely exhausted and we're getting internal errors as a result. What's the standard fix?"
+  category: exact_code
+  hard_case: HC3-PAY-1042
+  query_form: semantic_no_identifier
+  ground_truth:
+    required:
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Evidence"
+      - document: "incidents/payments-gateway-timeout-connection-pool"
+        section: "Resolution"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/payments-gateway-timeout-cert-expiry"
+        section: null
+        reason: "No identifier present in this phrasing; a retriever weighting general 'Payments infrastructure problem' similarity over the specific pool-exhaustion detail risks surfacing the certificate-expiry incident instead, HC1 Pair A's core confusion resurfacing once the exact code is removed."
+  expected_behavior: answer
+  expected_facts:
+    - "This matches a documented incident where the pool size was reverted back to its correct configuration after being inadvertently reduced."
+
+- id: q036
+  query: "What triggers a CHK-4400 error and how should I handle it?"
+  category: exact_code
+  hard_case: HC3-CHK-4400
+  query_form: exact_identifier
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "How the Fraud Precheck Works"
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "Resolution Steps"
+    acceptable: []
+    relevant_insufficient:
+      - document: "service_docs/checkout"
+        section: "Common Error Codes"
+        reason: "Confirms the code's one-line meaning, but not the scoring factors or handling steps, insufficient alone to answer the compound 'what triggers it and how should I handle it' question."
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "CHK-4400 means an order was rejected by Checkout's fraud precheck before reaching Payments; suspected false positives can be manually reviewed and resubmitted, but the scoring threshold itself shouldn't be adjusted for an individual case."
+
+- id: q037
+  query: "An order was rejected with CHK-4400 right at submission, before the customer even entered card details. What does that mean?"
+  category: exact_code
+  hard_case: HC3-CHK-4400
+  query_form: identifier_plus_context
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "How the Fraud Precheck Works"
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "Resolution Steps"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "The order was scored and rejected by the fraud precheck before Checkout ever contacted Payments, consistent with a rejection that happens before card entry."
+
+- id: q038
+  query: "An order got rejected immediately at checkout, before any charge was attempted. What would cause that and how do we handle it?"
+  category: exact_code
+  hard_case: HC3-CHK-4400
+  query_form: semantic_no_identifier
+  ground_truth:
+    required:
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "How the Fraud Precheck Works"
+      - document: "runbooks/checkout-fraud-precheck-rejection"
+        section: "Resolution Steps"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "runbooks/payments-decline-troubleshooting"
+        section: null
+        reason: "No identifier present; a retriever weighting general 'order rejected' similarity over the 'before any charge was attempted' detail risks surfacing the Payments decline runbook instead, HC2's core confusion resurfacing once the exact code is removed."
+  expected_behavior: answer
+  expected_facts:
+    - "This is consistent with a fraud precheck rejection, which happens before any request reaches Payments; suspected false positives can be manually reviewed and resubmitted."
+
+- id: q039
+  query: "What does AUTH-5501 mean, and what caused it last time we saw it?"
+  category: exact_code
+  hard_case: HC3-AUTH-5501
+  query_form: exact_identifier
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Evidence"
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Resolution"
+    acceptable: []
+    relevant_insufficient:
+      - document: "service_docs/authentication"
+        section: "Common Error Codes"
+        reason: "Confirms the code's one-line meaning, but not the historical cause or fix, insufficient alone to answer the compound 'what does it mean and what caused it' question."
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "AUTH-5501 means a session was not found on validation; last time, this was caused by Redis evicting active sessions under memory pressure, resolved by increasing the session store's memory limit."
+
+- id: q040
+  query: "We're getting a spike of AUTH-5501 errors, and users are reporting being logged out unexpectedly. What's the likely cause?"
+  category: exact_code
+  hard_case: HC3-AUTH-5501
+  query_form: identifier_plus_context
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Evidence"
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Resolution"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: answer
+  expected_facts:
+    - "Check Redis session store memory utilization and eviction metrics, this matches a prior incident caused by session eviction under memory pressure."
+
+- id: q041
+  query: "Users are being logged out unexpectedly and login attempts are failing even though nothing seems wrong with their credentials. What could explain that?"
+  category: exact_code
+  hard_case: HC3-AUTH-5501
+  query_form: semantic_no_identifier
+  ground_truth:
+    required:
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Evidence"
+      - document: "incidents/auth-login-failures-session-store"
+        section: "Resolution"
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors:
+      - document: "incidents/auth-login-failures-rate-limiter"
+        section: null
+        reason: "No identifier present; 'login attempts are failing' framed generically risks surfacing the rate-limiter incident instead of the session-eviction one, HC1 Pair B's core confusion resurfacing once the exact code is removed."
+  expected_behavior: answer
+  expected_facts:
+    - "This is consistent with session records being evicted from the Redis session store under memory pressure, which invalidates active sessions independent of credential correctness."
+
+- id: q042
+  query: "How do we handle a chargeback dispute filed by a customer's bank?"
+  category: unanswerable
+  hard_case: HC4-full-absence
+  query_form: null
+  ground_truth:
+    required: []
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: abstain
+  expected_facts: []
+
+- id: q043
+  query: "Do we support processing payments in multiple currencies for international customers?"
+  category: unanswerable
+  hard_case: HC4-full-absence
+  query_form: null
+  ground_truth:
+    required: []
+    acceptable: []
+    relevant_insufficient: []
+    known_distractors: []
+  expected_behavior: abstain
+  expected_facts: []
+
+- id: q044
+  query: "What's our current delivery success rate for push notifications?"
+  category: unanswerable
+  hard_case: HC4-scope-boundary
+  query_form: null
+  ground_truth:
+    required: []
+    acceptable: []
+    relevant_insufficient:
+      - document: "service_docs/notifications"
+        section: "Overview"
+        reason: "Establishes the service's actual supported channels (email and SMS only) and could plausibly be retrieved on 'notifications' similarity, but never mentions push notifications at all, there is no metric to report."
+    known_distractors: []
+  expected_behavior: abstain
+  expected_facts: []
+
+- id: q045
+  query: "What's our SLA for completing a GDPR data deletion request?"
+  category: unanswerable
+  hard_case: HC4-adjacent-unsupported
+  query_form: null
+  ground_truth:
+    required: []
+    acceptable: []
+    relevant_insufficient:
+      - document: "policies/data-retention-and-access"
+        section: "Retention Periods"
+        reason: "The directly relevant policy document, topically about exactly this subject, but never mentions GDPR-specific deletion SLAs or timelines despite covering general retention periods."
+    known_distractors: []
+  expected_behavior: abstain
+  expected_facts: []
+
+- id: q046
+  query: "What's the typical turnaround time for a refund to actually reach the customer once we initiate it?"
+  category: unanswerable
+  hard_case: HC4-adjacent-unsupported
+  query_form: null
+  ground_truth:
+    required: []
+    acceptable: []
+    relevant_insufficient:
+      - document: "service_docs/payments"
+        section: "API Overview"
+        reason: "Confirms refund initiation exists as an API capability, but states nothing about processing time, procedure, or turnaround, the closest thing that exists, but genuinely doesn't answer the question."
+    known_distractors: []
+  expected_behavior: abstain
+  expected_facts: []
