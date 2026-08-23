@@ -51,5 +51,8 @@ jobs:
       - name: Run database migrations
         run: uv run alembic upgrade head
 
+      - name: Ingest corpus
+        run: uv run python -m app.ingestion.ingest_corpus
+
       - name: Test (pytest)
         run: uv run pytest
