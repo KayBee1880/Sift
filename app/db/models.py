@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -24,8 +24,10 @@ class Document(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     service: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    filepath: Mapped[str] = mapped_column(String(500), nullable=False)
-    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_path: Mapped[str] = mapped_column(String(500), unique=True, nullable=False, index=True)
+    source_content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    processing_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_model_name: Mapped[str] = mapped_column(String(255), nullable=False)
     extra_metadata: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict
     )
@@ -46,8 +48,15 @@ class Chunk(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
     )
     section_anchor: Mapped[str] = mapped_column(String(255), nullable=False)
-    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSION), nullable=False)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id", "section_index", "section_chunk_index", name="uq_chunk_provenance"
+        ),
+    )
