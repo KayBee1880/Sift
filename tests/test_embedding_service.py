@@ -3,7 +3,7 @@ import math
 import pytest
 
 from app.config import get_settings
-from app.embedding.service import embed_texts
+from app.embedding.service import QUERY_INSTRUCTION_PREFIX, embed_query, embed_texts
 
 
 def _l2_norm(vector: list[float]) -> float:
@@ -52,3 +52,36 @@ def test_empty_string_in_input_raises_value_error():
 def test_whitespace_only_string_in_input_raises_value_error():
     with pytest.raises(ValueError, match="empty or whitespace-only"):
         embed_texts(["   \n\t  "])
+
+
+def test_embed_query_returns_normalized_vector_of_expected_dimension():
+    vector = embed_query("what caused the payments outage")
+    assert len(vector) == get_settings().embedding_dimension
+    assert _l2_norm(vector) == pytest.approx(1.0, abs=1e-4)
+
+
+def test_embed_query_applies_instruction_prefix_that_embed_texts_never_sees():
+    # embed_query and embed_texts on the *same* raw string must not produce
+    # identical vectors, since embed_query prepends the retrieval instruction and
+    # embed_texts never does, that asymmetry is the entire point of having two
+    # separate functions instead of one with a boolean flag.
+    text = "what caused the payments outage"
+    query_vector = embed_query(text)
+    passage_vector = embed_texts([text])[0]
+    assert query_vector != pytest.approx(passage_vector, abs=1e-6)
+
+    # Confirm embed_query is equivalent to embed_texts on the manually prefixed
+    # string, proving the difference is exactly the instruction prefix and nothing
+    # else hidden inside embed_query.
+    manually_prefixed_vector = embed_texts([f"{QUERY_INSTRUCTION_PREFIX}{text}"])[0]
+    assert query_vector == pytest.approx(manually_prefixed_vector, abs=1e-6)
+
+
+def test_embed_query_empty_string_raises_value_error():
+    with pytest.raises(ValueError, match="empty or whitespace-only"):
+        embed_query("")
+
+
+def test_embed_query_whitespace_only_raises_value_error():
+    with pytest.raises(ValueError, match="empty or whitespace-only"):
+        embed_query("   \n\t  ")

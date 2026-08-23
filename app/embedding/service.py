@@ -4,6 +4,12 @@ from sentence_transformers import SentenceTransformer
 
 from app.config import get_settings
 
+# BAAI/bge-small-en-v1.5's documented retrieval convention: queries get this
+# instruction prepended, passages never do. Verified against the model's own
+# documentation, not assumed. Applying it to passages, or omitting it from queries,
+# would silently degrade retrieval quality without raising any error.
+QUERY_INSTRUCTION_PREFIX = "Represent this sentence for searching relevant passages: "
+
 
 @lru_cache
 def _model() -> SentenceTransformer:
@@ -40,3 +46,20 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         )
 
     return embeddings.tolist()
+
+
+def embed_query(query: str) -> list[float]:
+    """Embed a single search query, not a passage/chunk.
+
+    Kept separate from embed_texts deliberately, not just a thin wrapper around it:
+    the query side of BGE's asymmetric retrieval convention applies an instruction
+    prefix that must never be applied to passage embeddings, and passage embeddings
+    must never skip it either, so the two call sites need to stay visibly distinct in
+    the codebase, not merged into one function with a boolean flag that's easy to
+    pass incorrectly.
+    """
+    if not query or not query.strip():
+        raise ValueError("embed_query: query is empty or whitespace-only")
+
+    prefixed = f"{QUERY_INSTRUCTION_PREFIX}{query}"
+    return embed_texts([prefixed])[0]
