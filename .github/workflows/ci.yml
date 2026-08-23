@@ -8,6 +8,29 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: sift
+          POSTGRES_PASSWORD: sift_dev_password
+          POSTGRES_DB: sift
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sift -d sift"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_USER: sift
+      POSTGRES_PASSWORD: sift_dev_password
+      POSTGRES_DB: sift
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +47,9 @@ jobs:
 
       - name: Lint (ruff)
         run: uv run ruff check .
+
+      - name: Run database migrations
+        run: uv run alembic upgrade head
 
       - name: Test (pytest)
         run: uv run pytest
