@@ -9,6 +9,14 @@ from app.ingestion.chunker import chunk_document
 from app.ingestion.metadata import DOCUMENT_SERVICE
 from app.ingestion.pipeline import ingest_document
 
+# All fixture source_paths in this file live under test_fixtures/, a directory that
+# does not exist in corpus/ and never will. Real corpus paths (e.g.
+# "service_docs/payments.md") were used here originally; that was a real bug, not a
+# stylistic choice; every test's "clean slate" delete deleted the actual corpus
+# document by path, and nothing ever restored it, so running this file locally
+# (against the persistent dev database, not an ephemeral CI one) silently destroyed
+# real ingested corpus data. See decision log for the incident writeup.
+
 NEW_DOC_CONTENT = """# Payments Service
 
 ## Overview
@@ -97,9 +105,10 @@ def _write_fixture(tmp_path, relative_path: str, content: str):
 
 
 def test_new_document_is_created_with_expected_chunks_and_vectors(
-    tmp_path, db_session, cleanup_document
+    tmp_path, db_session, cleanup_document, monkeypatch
 ):
-    source_path = "service_docs/payments.md"
+    source_path = "test_fixtures/payments.md"
+    monkeypatch.setitem(DOCUMENT_SERVICE, source_path, "payments")
     cleanup_document.append(source_path)
     _delete_document(db_session, source_path)  # defensive: clean slate before the test
 
@@ -114,15 +123,18 @@ def test_new_document_is_created_with_expected_chunks_and_vectors(
         select(Document).where(Document.source_path == source_path)
     ).scalar_one()
     assert stored.title == "Payments Service"
-    assert stored.category == "service_docs"
+    assert stored.category == "test_fixtures"
     assert stored.service == "payments"
     assert len(stored.chunks) == 2
     for chunk in stored.chunks:
         assert len(chunk.embedding) == 384
 
 
-def test_cross_cutting_document_stores_null_service(tmp_path, db_session, cleanup_document):
-    source_path = "architecture/system-overview.md"
+def test_cross_cutting_document_stores_null_service(
+    tmp_path, db_session, cleanup_document, monkeypatch
+):
+    source_path = "test_fixtures/system-overview.md"
+    monkeypatch.setitem(DOCUMENT_SERVICE, source_path, None)
     cleanup_document.append(source_path)
     _delete_document(db_session, source_path)
 
@@ -138,9 +150,10 @@ def test_cross_cutting_document_stores_null_service(tmp_path, db_session, cleanu
 
 
 def test_unchanged_document_is_skipped_on_second_ingestion(
-    tmp_path, db_session, cleanup_document
+    tmp_path, db_session, cleanup_document, monkeypatch
 ):
-    source_path = "service_docs/checkout.md"
+    source_path = "test_fixtures/checkout.md"
+    monkeypatch.setitem(DOCUMENT_SERVICE, source_path, "checkout")
     cleanup_document.append(source_path)
     _delete_document(db_session, source_path)
 
@@ -163,9 +176,10 @@ def test_unchanged_document_is_skipped_on_second_ingestion(
 
 
 def test_changed_document_replaces_chunks_with_only_new_content(
-    tmp_path, db_session, cleanup_document
+    tmp_path, db_session, cleanup_document, monkeypatch
 ):
-    source_path = "service_docs/authentication.md"
+    source_path = "test_fixtures/authentication.md"
+    monkeypatch.setitem(DOCUMENT_SERVICE, source_path, "authentication")
     cleanup_document.append(source_path)
     _delete_document(db_session, source_path)
 
@@ -190,8 +204,11 @@ def test_changed_document_replaces_chunks_with_only_new_content(
         assert "Original second section" not in chunk.text
 
 
-def test_failed_replacement_rolls_back_cleanly(tmp_path, db_session, cleanup_document, monkeypatch):
-    source_path = "service_docs/notifications.md"
+def test_failed_replacement_rolls_back_cleanly(
+    tmp_path, db_session, cleanup_document, monkeypatch
+):
+    source_path = "test_fixtures/notifications.md"
+    monkeypatch.setitem(DOCUMENT_SERVICE, source_path, "notifications")
     cleanup_document.append(source_path)
     _delete_document(db_session, source_path)
 
@@ -229,11 +246,12 @@ def test_failed_replacement_rolls_back_cleanly(tmp_path, db_session, cleanup_doc
 
 
 def test_stale_processing_version_forces_reprocessing_with_unchanged_bytes(
-    tmp_path, db_session, cleanup_document
+    tmp_path, db_session, cleanup_document, monkeypatch
 ):
     # Same skip-rule conditional also checks embedding_model_name; not tested
     # separately by name since it's the identical code path with a different field.
-    source_path = "service_docs/analytics.md"
+    source_path = "test_fixtures/analytics.md"
+    monkeypatch.setitem(DOCUMENT_SERVICE, source_path, "analytics")
     cleanup_document.append(source_path)
     _delete_document(db_session, source_path)
 
