@@ -1,0 +1,132 @@
+from dataclasses import dataclass
+
+import httpx
+
+from app.config import get_settings
+from app.retrieval.reranker import RerankedChunk
+
+GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Below this, the strongest retrieved chunk is so dissimilar to the query that
+# calling the model is pointless: abstain immediately rather than risk it
+# synthesizing an answer from noise, and skip a wasted API call. Not empirically
+# tuned against a labeled set of genuinely out-of-corpus queries (the golden set's
+# abstain cases are all topically adjacent by design, specifically so this floor
+# alone can't catch them, see MODEL_ABSTENTION_SENTINEL below), a conservative
+# placeholder pending real out-of-scope query data.
+MIN_RETRIEVAL_SIMILARITY = 0.3
+
+# Deterministic, greppable sentinel the model is instructed to emit verbatim when it
+# cannot answer from the given context. Detecting this exact prefix is far more
+# reliable than fuzzy-matching natural-language phrases like "I don't know" in
+# free-form prose, which the model could phrase many different ways.
+MODEL_ABSTENTION_SENTINEL = "INSUFFICIENT_EVIDENCE:"
+
+SYSTEM_PROMPT = (
+    "You are Sift, an assistant that answers questions using only the numbered "
+    "excerpts provided below. Cite every factual claim using ONLY the exact format "
+    "[N] (a bare number in square brackets, e.g. [1] or [2]) immediately after the "
+    "claim it supports. Do not use any other citation style — no footnote markers, "
+    "no source names, no special characters, nothing but [N]. Do not use any "
+    "knowledge beyond what the excerpts state.\n\n"
+    f'If the excerpts do not contain enough information to answer the question, '
+    f'respond with exactly "{MODEL_ABSTENTION_SENTINEL}" followed by a brief, '
+    "specific explanation of what is missing, and nothing else."
+)
+
+
+@dataclass
+class Citation:
+    ref: int
+    document_slug: str
+    section_anchor: str | None
+    document_title: str
+    source_path: str
+
+
+@dataclass
+class GenerationResult:
+    answer: str
+    citations: list[Citation]
+    abstained: bool
+
+
+def build_context(chunks: list[RerankedChunk]) -> tuple[str, list[Citation]]:
+    """Number each chunk for citation and render it into a single context block.
+
+    Citation numbers are assigned in the given (post-rerank) order, 1-indexed to
+    match how the prompt instructs the model to cite them.
+    """
+    blocks = []
+    citations = []
+    for ref, rc in enumerate(chunks, start=1):
+        chunk = rc.chunk
+        blocks.append(
+            f"[{ref}] {chunk.document_title} — {chunk.section_anchor}\n{chunk.text}"
+        )
+        citations.append(
+            Citation(
+                ref=ref,
+                document_slug=chunk.document_slug,
+                section_anchor=chunk.section_anchor,
+                document_title=chunk.document_title,
+                source_path=chunk.source_path,
+            )
+        )
+    return "\n\n".join(blocks), citations
+
+
+def build_messages(query: str, context: str) -> list[dict]:
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Excerpts:\n\n{context}\n\nQuestion: {query}"},
+    ]
+
+
+def _call_groq(messages: list[dict]) -> str:
+    settings = get_settings()
+    response = httpx.post(
+        GROQ_CHAT_COMPLETIONS_URL,
+        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+        json={
+            "model": settings.groq_model_name,
+            "messages": messages,
+            # Deterministic-leaning, not a bitwise-reproducibility claim: grounded
+            # citation generation benefits from low temperature, same convention
+            # already recorded for the embedding model's eval() call.
+            "temperature": 0.0,
+        },
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+
+def _abstention_result() -> GenerationResult:
+    return GenerationResult(
+        answer="I don't have enough information in the available documentation to answer that.",
+        citations=[],
+        abstained=True,
+    )
+
+
+def generate_answer(query: str, chunks: list[RerankedChunk]) -> GenerationResult:
+    if not query or not query.strip():
+        raise ValueError("generate_answer: query is empty or whitespace-only")
+
+    if not chunks or max(rc.chunk.cosine_similarity for rc in chunks) < MIN_RETRIEVAL_SIMILARITY:
+        return _abstention_result()
+
+    context, citations = build_context(chunks)
+    messages = build_messages(query, context)
+    raw_answer = _call_groq(messages)
+
+    if raw_answer.strip().startswith(MODEL_ABSTENTION_SENTINEL):
+        explanation = raw_answer.strip().removeprefix(MODEL_ABSTENTION_SENTINEL).strip()
+        return GenerationResult(
+            answer=explanation or _abstention_result().answer,
+            citations=[],
+            abstained=True,
+        )
+
+    return GenerationResult(answer=raw_answer, citations=citations, abstained=False)

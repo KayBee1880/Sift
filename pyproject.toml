@@ -30,6 +30,9 @@ line-length = 100
 target-version = "py312"
 extend-exclude = ["app/db/migrations/versions"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends"]
+
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"

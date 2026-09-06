@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
 
     groq_api_key: str = ""
+    groq_model_name: str = "openai/gpt-oss-120b"
 
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
     embedding_dimension: int = 384
