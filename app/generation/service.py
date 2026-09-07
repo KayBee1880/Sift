@@ -30,9 +30,17 @@ SYSTEM_PROMPT = (
     "claim it supports. Do not use any other citation style — no footnote markers, "
     "no source names, no special characters, nothing but [N]. Do not use any "
     "knowledge beyond what the excerpts state.\n\n"
-    f'If the excerpts do not contain enough information to answer the question, '
-    f'respond with exactly "{MODEL_ABSTENTION_SENTINEL}" followed by a brief, '
-    "specific explanation of what is missing, and nothing else."
+    "This applies just as strictly to recommended actions, remediation steps, or "
+    "next steps as it does to factual claims: never infer or suggest a plausible-"
+    "sounding action, fix, or step that is not explicitly stated in an excerpt, "
+    "even if it seems like a reasonable thing to recommend.\n\n"
+    "If a question has multiple parts and the excerpts only cover some of them, "
+    "answer the part(s) you have evidence for and explicitly state that the "
+    "excerpts do not specify the rest — do not fill the gap with a plausible "
+    "guess.\n\n"
+    f'If the excerpts do not contain enough information to answer any part of '
+    f'the question, respond with exactly "{MODEL_ABSTENTION_SENTINEL}" followed by '
+    "a brief, specific explanation of what is missing, and nothing else."
 )
 
 
