@@ -39,6 +39,7 @@ def _reranked_chunk(
 class _FakeResponse:
     def __init__(self, content: str):
         self._content = content
+        self.status_code = 200
 
     def raise_for_status(self) -> None:
         pass
@@ -136,3 +137,52 @@ def test_generate_answer_detects_model_abstention_sentinel(monkeypatch):
     assert result.abstained is True
     assert result.citations == []
     assert "push notifications" in result.answer
+
+
+class _FakeRateLimitedResponse:
+    def __init__(self):
+        self.status_code = 429
+
+    def raise_for_status(self):
+        raise RuntimeError("429 rate limited")
+
+
+def test_generate_answer_retries_on_rate_limit_then_succeeds(monkeypatch):
+    monkeypatch.setattr("app.generation.service.time.sleep", lambda seconds: None)
+
+    call_count = {"n": 0}
+
+    def _flaky_post(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            return _FakeRateLimitedResponse()
+        return _FakeResponse("Notifications sends email and SMS [1].")
+
+    monkeypatch.setattr("app.generation.service.httpx.post", _flaky_post)
+
+    chunks = [_reranked_chunk(1, "Notifications Overview", "Overview", "Sends via email and SMS.")]
+    result = generate_answer("what channels does notifications use", chunks)
+
+    assert call_count["n"] == 3
+    assert result.abstained is False
+    assert result.answer == "Notifications sends email and SMS [1]."
+
+
+def test_generate_answer_gives_up_after_max_retries_on_persistent_rate_limit(monkeypatch):
+    from app.generation.service import GROQ_MAX_RETRIES
+
+    monkeypatch.setattr("app.generation.service.time.sleep", lambda seconds: None)
+
+    call_count = {"n": 0}
+
+    def _always_rate_limited(*args, **kwargs):
+        call_count["n"] += 1
+        return _FakeRateLimitedResponse()
+
+    monkeypatch.setattr("app.generation.service.httpx.post", _always_rate_limited)
+
+    chunks = [_reranked_chunk(1, "Notifications Overview", "Overview", "Sends via email and SMS.")]
+    with pytest.raises(RuntimeError, match="429 rate limited"):
+        generate_answer("what channels does notifications use", chunks)
+
+    assert call_count["n"] == GROQ_MAX_RETRIES

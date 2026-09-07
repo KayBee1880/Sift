@@ -6,6 +6,7 @@ from app.main import app
 class _FakeResponse:
     def __init__(self, content: str):
         self._content = content
+        self.status_code = 200
 
     def raise_for_status(self) -> None:
         pass

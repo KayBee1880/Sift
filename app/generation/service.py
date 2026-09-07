@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -83,23 +84,37 @@ def build_messages(query: str, context: str) -> list[dict]:
     ]
 
 
+GROQ_MAX_RETRIES = 3
+GROQ_RETRY_BACKOFF_SECONDS = 5.0
+
+
 def _call_groq(messages: list[dict]) -> str:
     settings = get_settings()
-    response = httpx.post(
-        GROQ_CHAT_COMPLETIONS_URL,
-        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-        json={
-            "model": settings.groq_model_name,
-            "messages": messages,
-            # Deterministic-leaning, not a bitwise-reproducibility claim: grounded
-            # citation generation benefits from low temperature, same convention
-            # already recorded for the embedding model's eval() call.
-            "temperature": 0.0,
-        },
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    for attempt in range(GROQ_MAX_RETRIES):
+        response = httpx.post(
+            GROQ_CHAT_COMPLETIONS_URL,
+            headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+            json={
+                "model": settings.groq_model_name,
+                "messages": messages,
+                # Deterministic-leaning, not a bitwise-reproducibility claim: grounded
+                # citation generation benefits from low temperature, same convention
+                # already recorded for the embedding model's eval() call.
+                "temperature": 0.0,
+            },
+            timeout=30.0,
+        )
+        # Free-tier rate limits are a real, expected condition here (not a
+        # can't-happen case), not just under eval load with many calls back to
+        # back but potentially under real traffic too, worth handling once here
+        # rather than in every caller.
+        if response.status_code == 429 and attempt < GROQ_MAX_RETRIES - 1:
+            time.sleep(GROQ_RETRY_BACKOFF_SECONDS * (attempt + 1))
+            continue
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+
+    raise AssertionError("unreachable: loop always returns or raises")
 
 
 def _abstention_result() -> GenerationResult:
