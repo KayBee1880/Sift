@@ -32,8 +32,26 @@ def _evidence_key(entry: dict) -> tuple[str, str | None]:
     return (entry["document"], entry.get("section"))
 
 
-def _chunk_key(chunk) -> tuple[str, str]:
-    return (chunk.document_slug, chunk.section_anchor)
+def _chunk_covers(chunk, document: str, section: str | None) -> bool:
+    """Whether a retrieved chunk covers a required/acceptable (document, section).
+
+    Not exact (document, section_anchor) equality: since the merge-small-sections
+    chunking strategy (decision log, 2026-09-08), section_anchor can be a compound
+    string like "Resolution + Follow-up Actions" for a chunk covering more than one
+    original section. Exact-identity matching (the original strategy-A-era check)
+    would silently score a chunk that genuinely contains the required section's
+    content as a miss whenever that section got merged with a neighbor, which is
+    the common case now, not a rare edge case. Splitting on " + " and checking
+    membership handles both merged and unmerged section_anchor values uniformly,
+    since an unmerged anchor is just a one-element list under this same check.
+    """
+    if chunk.document_slug != document:
+        return False
+    if section is None:
+        return True
+    if chunk.section_anchor is None:
+        return False
+    return section in chunk.section_anchor.split(" + ")
 
 
 def _score_answerable_query(query: dict, retrieved: list) -> dict:
@@ -49,20 +67,45 @@ def _score_answerable_query(query: dict, retrieved: list) -> dict:
     # the explicitly confirmed rule, treats required UNION acceptable as
     # answer-bearing. Acceptable-hit coverage is tracked as its own separate
     # diagnostic signal, never folded into the Recall@K numerator or denominator.
-    answer_bearing_keys = set(required) | set(acceptable)
-    ranked_keys = [_chunk_key(c) for c in retrieved]
+    answer_bearing = required + acceptable
 
-    rank = next((i for i, k in enumerate(ranked_keys, start=1) if k in answer_bearing_keys), None)
+    rank = next(
+        (
+            i
+            for i, c in enumerate(retrieved, start=1)
+            if any(_chunk_covers(c, doc, section) for doc, section in answer_bearing)
+        ),
+        None,
+    )
     reciprocal_rank = 1.0 / rank if rank else 0.0
 
     recall_at_k = {}
     all_required_covered_at_k = {}
     acceptable_hit_at_k = {}
     for k in K_VALUES:
-        top_k = set(ranked_keys[:k])
-        recall_at_k[k] = (sum(1 for r in required if r in top_k) / len(required)) if required else None
-        all_required_covered_at_k[k] = all(r in top_k for r in required) if required else None
-        acceptable_hit_at_k[k] = any(a in top_k for a in acceptable) if acceptable else False
+        top_k_chunks = retrieved[:k]
+        recall_at_k[k] = (
+            (
+                sum(
+                    1
+                    for doc, section in required
+                    if any(_chunk_covers(c, doc, section) for c in top_k_chunks)
+                )
+                / len(required)
+            )
+            if required
+            else None
+        )
+        all_required_covered_at_k[k] = (
+            all(any(_chunk_covers(c, doc, section) for c in top_k_chunks) for doc, section in required)
+            if required
+            else None
+        )
+        acceptable_hit_at_k[k] = (
+            any(any(_chunk_covers(c, doc, section) for c in top_k_chunks) for doc, section in acceptable)
+            if acceptable
+            else False
+        )
 
     distractor_hit_at_5 = [c.document_slug for c in retrieved[:5] if c.document_slug in distractor_docs]
 
