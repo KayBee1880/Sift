@@ -117,7 +117,10 @@ def test_new_document_is_created_with_expected_chunks_and_vectors(
 
     assert result.status == "created"
     assert result.source_path == source_path
-    assert result.chunk_count == 2  # Overview, Details
+    # Both sections are short enough to merge under the merge-small-sections
+    # chunking strategy (decision log, 2026-09-08), so this fixture produces one
+    # chunk covering both, not one chunk per section.
+    assert result.chunk_count == 1
 
     stored = db_session.execute(
         select(Document).where(Document.source_path == source_path)
@@ -125,7 +128,8 @@ def test_new_document_is_created_with_expected_chunks_and_vectors(
     assert stored.title == "Payments Service"
     assert stored.category == "test_fixtures"
     assert stored.service == "payments"
-    assert len(stored.chunks) == 2
+    assert len(stored.chunks) == 1
+    assert stored.chunks[0].section_anchor == "Overview + Details"
     for chunk in stored.chunks:
         assert len(chunk.embedding) == 384
 
@@ -186,19 +190,21 @@ def test_changed_document_replaces_chunks_with_only_new_content(
     doc_path = _write_fixture(tmp_path, source_path, ORIGINAL_CONTENT)
     first = ingest_document(doc_path, tmp_path, db_session)
     assert first.status == "created"
-    assert first.chunk_count == 2
+    # Both original sections are short enough to merge into one chunk under the
+    # merge-small-sections chunking strategy (decision log, 2026-09-08).
+    assert first.chunk_count == 1
 
     doc_path.write_text(CHANGED_CONTENT, encoding="utf-8")
     second = ingest_document(doc_path, tmp_path, db_session)
 
     assert second.status == "updated"
-    assert second.chunk_count == 3  # Overview, New Section, Another New Section
+    # All three new sections are also short enough to merge into one chunk.
+    assert second.chunk_count == 1
 
     stored = db_session.execute(
         select(Document).where(Document.source_path == source_path)
     ).scalar_one()
-    anchors = sorted(c.section_anchor for c in stored.chunks)
-    assert anchors == ["Another New Section", "New Section", "Overview"]
+    assert stored.chunks[0].section_anchor == "Overview + New Section + Another New Section"
     for chunk in stored.chunks:
         assert "Original fixture content" not in chunk.text
         assert "Original second section" not in chunk.text

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # changes, normalization convention changes. Checked as part of the skip rule
 # alongside embedding_model_name, which acts as an independent structural backstop
 # rather than relying solely on this being bumped by hand every time it should be.
-CURRENT_PROCESSING_VERSION = 1
+CURRENT_PROCESSING_VERSION = 2
 
 IngestionStatus = Literal["created", "updated", "skipped"]
 
