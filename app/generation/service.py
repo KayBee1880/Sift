@@ -1,3 +1,4 @@
+import re
 import time
 from dataclasses import dataclass
 
@@ -85,6 +86,13 @@ def build_context(chunks: list[RerankedChunk]) -> tuple[str, list[Citation]]:
     return "\n\n".join(blocks), citations
 
 
+CITATION_REF_PATTERN = re.compile(r"\[(\d+)\]")
+
+
+def _cited_refs(answer: str) -> set[int]:
+    return {int(ref) for ref in CITATION_REF_PATTERN.findall(answer)}
+
+
 def build_messages(query: str, context: str) -> list[dict]:
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -152,4 +160,11 @@ def generate_answer(query: str, chunks: list[RerankedChunk]) -> GenerationResult
             abstained=True,
         )
 
-    return GenerationResult(answer=raw_answer, citations=citations, abstained=False)
+    # `citations` at this point is every chunk handed to the model as context, not
+    # what the model actually cited. Filtering to refs that genuinely appear in the
+    # answer text matters beyond eval bookkeeping: an unfiltered list would tell a
+    # caller "these 5 sources support this answer" when the model may have only
+    # drawn on 2 of them, a real, user-facing correctness gap, not just a cosmetic
+    # one.
+    used_citations = [c for c in citations if c.ref in _cited_refs(raw_answer)]
+    return GenerationResult(answer=raw_answer, citations=used_citations, abstained=False)

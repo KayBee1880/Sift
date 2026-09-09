@@ -123,6 +123,22 @@ def test_generate_answer_returns_grounded_answer_with_citations(monkeypatch):
     assert result.citations[0].document_slug == "doc-1"
 
 
+def test_generate_answer_filters_citations_to_those_actually_cited(monkeypatch):
+    monkeypatch.setattr(
+        "app.generation.service.httpx.post",
+        lambda *a, **k: _FakeResponse("Notifications sends email [1]."),
+    )
+
+    chunks = [
+        _reranked_chunk(1, "Notifications Overview", "Overview", "Sends via email."),
+        _reranked_chunk(2, "Notifications Overview", "SMS Details", "Also sends via SMS."),
+    ]
+    result = generate_answer("what channels does notifications use", chunks)
+
+    assert result.abstained is False
+    assert [c.ref for c in result.citations] == [1]
+
+
 def test_generate_answer_detects_model_abstention_sentinel(monkeypatch):
     monkeypatch.setattr(
         "app.generation.service.httpx.post",

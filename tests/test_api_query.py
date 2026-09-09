@@ -30,7 +30,9 @@ def test_query_endpoint_returns_grounded_answer_with_citations(monkeypatch):
     body = response.json()
     assert body["abstained"] is False
     assert body["answer"] == "Notifications sends messages via email and SMS [1]."
-    assert len(body["citations"]) == 5  # GENERATION_TOP_K
+    # Only ref [1] appears in the answer text, so only it should come back as a
+    # citation, not all GENERATION_TOP_K context chunks handed to the model.
+    assert len(body["citations"]) == 1
     assert all("document_slug" in c for c in body["citations"])
 
 
