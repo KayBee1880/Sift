@@ -59,6 +59,8 @@ class GenerationResult:
     answer: str
     citations: list[Citation]
     abstained: bool
+    prompt_tokens: int
+    completion_tokens: int
 
 
 def build_context(chunks: list[RerankedChunk]) -> tuple[str, list[Citation]]:
@@ -104,7 +106,14 @@ GROQ_MAX_RETRIES = 3
 GROQ_RETRY_BACKOFF_SECONDS = 5.0
 
 
-def _call_groq(messages: list[dict]) -> str:
+@dataclass
+class GroqCallResult:
+    content: str
+    prompt_tokens: int
+    completion_tokens: int
+
+
+def _call_groq(messages: list[dict]) -> GroqCallResult:
     settings = get_settings()
     for attempt in range(GROQ_MAX_RETRIES):
         response = httpx.post(
@@ -128,7 +137,20 @@ def _call_groq(messages: list[dict]) -> str:
             time.sleep(GROQ_RETRY_BACKOFF_SECONDS * (attempt + 1))
             continue
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        body = response.json()
+        # Groq's chat-completions response is OpenAI-compatible and documents a
+        # `usage` field, but this hasn't been confirmed against a real response by
+        # this project yet, so default to 0 rather than raising if it's ever
+        # missing or shaped differently. Free-tier cost has no dollar amount to
+        # track (Groq's free tier is $0), so token counts are the meaningful "cost"
+        # proxy against free-tier rate limits, the same constraint the retry logic
+        # above already exists to handle.
+        usage = body.get("usage") or {}
+        return GroqCallResult(
+            content=body["choices"][0]["message"]["content"],
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+        )
 
     raise AssertionError("unreachable: loop always returns or raises")
 
@@ -138,6 +160,8 @@ def _abstention_result() -> GenerationResult:
         answer="I don't have enough information in the available documentation to answer that.",
         citations=[],
         abstained=True,
+        prompt_tokens=0,
+        completion_tokens=0,
     )
 
 
@@ -150,7 +174,8 @@ def generate_answer(query: str, chunks: list[RerankedChunk]) -> GenerationResult
 
     context, citations = build_context(chunks)
     messages = build_messages(query, context)
-    raw_answer = _call_groq(messages)
+    groq_result = _call_groq(messages)
+    raw_answer = groq_result.content
 
     if raw_answer.strip().startswith(MODEL_ABSTENTION_SENTINEL):
         explanation = raw_answer.strip().removeprefix(MODEL_ABSTENTION_SENTINEL).strip()
@@ -158,6 +183,8 @@ def generate_answer(query: str, chunks: list[RerankedChunk]) -> GenerationResult
             answer=explanation or _abstention_result().answer,
             citations=[],
             abstained=True,
+            prompt_tokens=groq_result.prompt_tokens,
+            completion_tokens=groq_result.completion_tokens,
         )
 
     # `citations` at this point is every chunk handed to the model as context, not
@@ -167,4 +194,10 @@ def generate_answer(query: str, chunks: list[RerankedChunk]) -> GenerationResult
     # drawn on 2 of them, a real, user-facing correctness gap, not just a cosmetic
     # one.
     used_citations = [c for c in citations if c.ref in _cited_refs(raw_answer)]
-    return GenerationResult(answer=raw_answer, citations=used_citations, abstained=False)
+    return GenerationResult(
+        answer=raw_answer,
+        citations=used_citations,
+        abstained=False,
+        prompt_tokens=groq_result.prompt_tokens,
+        completion_tokens=groq_result.completion_tokens,
+    )

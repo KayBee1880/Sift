@@ -37,15 +37,19 @@ def _reranked_chunk(
 
 
 class _FakeResponse:
-    def __init__(self, content: str):
+    def __init__(self, content: str, usage: dict | None = None):
         self._content = content
+        self._usage = usage
         self.status_code = 200
 
     def raise_for_status(self) -> None:
         pass
 
     def json(self) -> dict:
-        return {"choices": [{"message": {"content": self._content}}]}
+        body = {"choices": [{"message": {"content": self._content}}]}
+        if self._usage is not None:
+            body["usage"] = self._usage
+        return body
 
 
 def test_build_context_numbers_chunks_and_matches_citations():
@@ -92,6 +96,8 @@ def test_generate_answer_no_chunks_abstains_without_calling_model(monkeypatch):
     result = generate_answer("some query", [])
     assert result.abstained is True
     assert result.citations == []
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
 
 def test_generate_answer_low_similarity_abstains_without_calling_model(monkeypatch):
@@ -106,6 +112,8 @@ def test_generate_answer_low_similarity_abstains_without_calling_model(monkeypat
     result = generate_answer("some query", [weak_chunk])
     assert result.abstained is True
     assert result.citations == []
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
 
 def test_generate_answer_returns_grounded_answer_with_citations(monkeypatch):
@@ -121,6 +129,35 @@ def test_generate_answer_returns_grounded_answer_with_citations(monkeypatch):
     assert result.answer == "Notifications sends email and SMS [1]."
     assert len(result.citations) == 1
     assert result.citations[0].document_slug == "doc-1"
+
+
+def test_generate_answer_captures_token_usage_from_response(monkeypatch):
+    monkeypatch.setattr(
+        "app.generation.service.httpx.post",
+        lambda *a, **k: _FakeResponse(
+            "Notifications sends email and SMS [1].",
+            usage={"prompt_tokens": 123, "completion_tokens": 45},
+        ),
+    )
+
+    chunks = [_reranked_chunk(1, "Notifications Overview", "Overview", "Sends via email and SMS.")]
+    result = generate_answer("what channels does notifications use", chunks)
+
+    assert result.prompt_tokens == 123
+    assert result.completion_tokens == 45
+
+
+def test_generate_answer_defaults_token_usage_to_zero_when_response_omits_it(monkeypatch):
+    monkeypatch.setattr(
+        "app.generation.service.httpx.post",
+        lambda *a, **k: _FakeResponse("Notifications sends email and SMS [1]."),
+    )
+
+    chunks = [_reranked_chunk(1, "Notifications Overview", "Overview", "Sends via email and SMS.")]
+    result = generate_answer("what channels does notifications use", chunks)
+
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
 
 def test_generate_answer_filters_citations_to_those_actually_cited(monkeypatch):
@@ -143,7 +180,8 @@ def test_generate_answer_detects_model_abstention_sentinel(monkeypatch):
     monkeypatch.setattr(
         "app.generation.service.httpx.post",
         lambda *a, **k: _FakeResponse(
-            f"{MODEL_ABSTENTION_SENTINEL} The excerpts only cover email and SMS, not push notifications."
+            f"{MODEL_ABSTENTION_SENTINEL} The excerpts only cover email and SMS, not push notifications.",
+            usage={"prompt_tokens": 80, "completion_tokens": 20},
         ),
     )
 
@@ -153,6 +191,11 @@ def test_generate_answer_detects_model_abstention_sentinel(monkeypatch):
     assert result.abstained is True
     assert result.citations == []
     assert "push notifications" in result.answer
+    # Unlike the floor-abstention path (no chunks / low similarity, tested above),
+    # this path makes a real call before the model decides to abstain, so real
+    # token usage should still be captured, not silently zeroed.
+    assert result.prompt_tokens == 80
+    assert result.completion_tokens == 20
 
 
 class _FakeRateLimitedResponse:

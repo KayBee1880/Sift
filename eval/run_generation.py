@@ -16,6 +16,12 @@ never as ground truth, and every judge verdict is saved alongside the raw
 generated answer so a human can spot-check the judge itself, not just the
 generator.
 
+Also tracks latency (retrieval and generation timed separately, per Phase 3's
+roadmap scope) and token usage as a "cost" proxy: Groq's free tier has no
+dollar cost, so token counts against the free-tier rate limit are the
+meaningful cost signal, reported separately for real query calls versus
+judge calls, since a real POST /query caller never pays for the latter.
+
 Usage: PYTHONPATH=. uv run python -m eval.run_generation
 """
 
@@ -44,18 +50,24 @@ JUDGE_PROMPT_TEMPLATE = (
 )
 
 
-def _judge_fact_supported(fact: str, answer: str) -> bool | None:
-    """Returns True/False for a clear verdict, None if the judge's response
-    couldn't be parsed unambiguously (never guessed, treated as a distinct
-    outcome from both True and False in the summary, not silently coerced).
+def _judge_fact_supported(fact: str, answer: str) -> tuple[bool | None, int, int]:
+    """Returns (verdict, prompt_tokens, completion_tokens). Verdict is True/False
+    for a clear response, None if the judge's response couldn't be parsed
+    unambiguously (never guessed, treated as a distinct outcome from both True and
+    False in the summary, not silently coerced). Token counts are returned even for
+    an unparseable verdict since the call still happened and still has a real cost
+    against the free-tier rate limit, regardless of whether the answer was usable.
     """
     messages = [{"role": "user", "content": JUDGE_PROMPT_TEMPLATE.format(fact=fact, answer=answer)}]
-    verdict = _call_groq(messages).strip().upper()
-    if verdict == "YES":
-        return True
-    if verdict == "NO":
-        return False
-    return None
+    groq_result = _call_groq(messages)
+    verdict_text = groq_result.content.strip().upper()
+    if verdict_text == "YES":
+        verdict = True
+    elif verdict_text == "NO":
+        verdict = False
+    else:
+        verdict = None
+    return verdict, groq_result.prompt_tokens, groq_result.completion_tokens
 
 
 def _citation_validity(citations: list[Citation], ground_truth: dict) -> float | None:
@@ -75,7 +87,7 @@ def _citation_validity(citations: list[Citation], ground_truth: dict) -> float |
     return valid / len(citations)
 
 
-def _score_query(query: dict, result: GenerationResult) -> dict:
+def _score_query(query: dict, result: GenerationResult, timings: dict) -> dict:
     expected_behavior = query["expected_behavior"]
     ground_truth = query["ground_truth"]
 
@@ -90,6 +102,17 @@ def _score_query(query: dict, result: GenerationResult) -> dict:
         "fact_verdicts": None,
         "fact_coverage": None,
         "correct_abstention_decision": None,
+        # Real-query token usage, present even on abstention (0 for the floor case,
+        # which never calls the model; real usage for the sentinel case, which does).
+        "query_prompt_tokens": result.prompt_tokens,
+        "query_completion_tokens": result.completion_tokens,
+        # Judge-call usage, tracked separately: a real production query never
+        # triggers these calls, so blending them into "query" tokens would
+        # misrepresent what a live user actually costs.
+        "judge_prompt_tokens": 0,
+        "judge_completion_tokens": 0,
+        "retrieval_seconds": timings["retrieval_seconds"],
+        "generation_seconds": timings["generation_seconds"],
     }
 
     if expected_behavior == "abstain":
@@ -103,8 +126,11 @@ def _score_query(query: dict, result: GenerationResult) -> dict:
 
     expected_facts = query.get("expected_facts") or []
     if expected_facts:
-        verdicts = [_judge_fact_supported(fact, result.answer) for fact in expected_facts]
+        judged = [_judge_fact_supported(fact, result.answer) for fact in expected_facts]
+        verdicts = [v for v, _, _ in judged]
         entry["fact_verdicts"] = verdicts
+        entry["judge_prompt_tokens"] = sum(p for _, p, _ in judged)
+        entry["judge_completion_tokens"] = sum(c for _, _, c in judged)
         resolved = [v for v in verdicts if v is not None]
         entry["fact_coverage"] = (sum(resolved) / len(resolved)) if resolved else None
 
@@ -118,10 +144,17 @@ def run() -> list[dict]:
     session = SessionLocal()
     results = []
     for query in queries:
+        retrieval_start = time.perf_counter()
         candidates = retrieve(query["query"], top_k=RETRIEVAL_DEPTH, session=session)
         reranked = rerank(query["query"], candidates, top_k=GENERATION_TOP_K)
+        retrieval_seconds = time.perf_counter() - retrieval_start
+
+        generation_start = time.perf_counter()
         generation_result = generate_answer(query["query"], reranked)
-        results.append(_score_query(query, generation_result))
+        generation_seconds = time.perf_counter() - generation_start
+
+        timings = {"retrieval_seconds": retrieval_seconds, "generation_seconds": generation_seconds}
+        results.append(_score_query(query, generation_result, timings))
         # Free-tier courtesy pacing across ~46 generation calls plus judge calls,
         # not a response to any specific observed rate limit.
         time.sleep(0.5)
@@ -161,6 +194,33 @@ def summarize(results: list[dict]) -> dict:
         else None
     )
 
+    def _stats(values: list[float]) -> dict:
+        return {"mean": sum(values) / len(values), "min": min(values), "max": max(values)}
+
+    # "generation_seconds" times only the answer-generation call itself, never the
+    # per-fact judge calls that happen afterward in _score_query — those are
+    # eval-only overhead a real POST /query caller never pays, so folding them in
+    # here would overstate what a live user actually experiences.
+    timing = {
+        "retrieval_seconds": _stats([r["retrieval_seconds"] for r in results]),
+        "generation_seconds": _stats([r["generation_seconds"] for r in results]),
+        "total_seconds": _stats(
+            [r["retrieval_seconds"] + r["generation_seconds"] for r in results]
+        ),
+    }
+
+    # Groq's free tier has no dollar cost, so token counts against the free-tier
+    # rate limit are the meaningful "cost" proxy here, not a currency amount.
+    # Query tokens (what a real POST /query call pays) and judge tokens (eval-only
+    # overhead, never paid by a real caller) are reported separately, not summed,
+    # so this doesn't misrepresent what running the production system actually costs.
+    tokens = {
+        "query_prompt_tokens_total": sum(r["query_prompt_tokens"] for r in results),
+        "query_completion_tokens_total": sum(r["query_completion_tokens"] for r in results),
+        "judge_prompt_tokens_total": sum(r["judge_prompt_tokens"] for r in results),
+        "judge_completion_tokens_total": sum(r["judge_completion_tokens"] for r in results),
+    }
+
     return {
         "n_queries": len(results),
         "n_abstain_queries": len(abstain_queries),
@@ -180,6 +240,8 @@ def summarize(results: list[dict]) -> dict:
             for r in answered_with_facts
             if r["fact_coverage"] is not None and r["fact_coverage"] < 1.0
         ],
+        "timing": timing,
+        "tokens": tokens,
     }
 
 
