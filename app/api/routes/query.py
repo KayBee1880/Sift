@@ -3,6 +3,8 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
+from app.db.models import User
 from app.db.session import get_db
 from app.generation.service import generate_answer
 from app.retrieval.reranker import rerank
@@ -18,8 +20,17 @@ GENERATION_TOP_K = 5
 
 
 @router.post("/query", response_model=QueryResponse)
-def query(request: QueryRequest, session: Session = Depends(get_db)) -> QueryResponse:
-    candidates = retrieve(request.query, top_k=RETRIEVAL_DEPTH, session=session)
+def query(
+    request: QueryRequest,
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> QueryResponse:
+    candidates = retrieve(
+        request.query,
+        top_k=RETRIEVAL_DEPTH,
+        session=session,
+        allowed_services=current_user.allowed_services,
+    )
     reranked = rerank(request.query, candidates, top_k=GENERATION_TOP_K)
     result = generate_answer(request.query, reranked)
 

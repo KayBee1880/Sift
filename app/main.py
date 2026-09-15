@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.routes.auth import router as auth_router
 from app.api.routes.query import router as query_router
 
 app = FastAPI(title="Sift")
+app.include_router(auth_router)
 app.include_router(query_router)
 
 

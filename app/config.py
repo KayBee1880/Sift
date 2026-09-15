@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model_name: str = "openai/gpt-oss-120b"
 
+    # Dev-only placeholder, same convention already used for postgres_password:
+    # a non-secret, clearly-local default committed in the open, never meant for
+    # a real deployment. A real deployment would set this from a real secret
+    # store/environment variable, the same way GROQ_API_KEY is kept out of the
+    # repo via .env.
+    jwt_secret_key: str = "sift-dev-jwt-secret-change-before-any-real-deployment"
+
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
     embedding_dimension: int = 384
 

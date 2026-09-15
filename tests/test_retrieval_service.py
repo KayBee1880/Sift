@@ -91,6 +91,52 @@ def test_persisted_corpus_vectors_are_unit_normalized(db_session):
     assert all(abs(n - 1.0) < 1e-3 for n in norms)
 
 
+def test_allowed_services_none_is_unrestricted(db_session):
+    # Default/backward-compatible behavior: every existing caller that doesn't
+    # pass allowed_services (every eval script, every test above this one) keeps
+    # seeing everything, unchanged.
+    unrestricted = retrieve("incident resolution", top_k=1000, session=db_session)
+    with_explicit_none = retrieve(
+        "incident resolution", top_k=1000, session=db_session, allowed_services=None
+    )
+    assert [r.chunk_id for r in unrestricted] == [r.chunk_id for r in with_explicit_none]
+
+
+def test_allowed_services_restricts_to_named_services_and_null(db_session):
+    results = retrieve(
+        "incident resolution", top_k=1000, session=db_session, allowed_services=["payments"]
+    )
+    assert results  # sanity: the filter isn't accidentally excluding everything
+    assert all(r.service in (None, "payments") for r in results)
+
+
+def test_allowed_services_actually_excludes_other_services_content(db_session):
+    # Not vacuously true: confirms the filter genuinely removes results a caller
+    # would otherwise see, not just that every returned row happens to pass.
+    unrestricted = retrieve("incident resolution", top_k=1000, session=db_session)
+    unrestricted_other_service_slugs = {
+        r.document_slug for r in unrestricted if r.service not in (None, "payments")
+    }
+    assert unrestricted_other_service_slugs  # sanity: there's real content to exclude
+
+    restricted = retrieve(
+        "incident resolution", top_k=1000, session=db_session, allowed_services=["payments"]
+    )
+    restricted_slugs = {r.document_slug for r in restricted}
+    assert restricted_slugs.isdisjoint(unrestricted_other_service_slugs)
+
+
+def test_allowed_services_empty_list_returns_only_cross_cutting_documents(db_session):
+    # An empty (not None) allowed_services means "no team membership at all" —
+    # only NULL-service (cross-cutting) documents, like architecture/policy docs,
+    # should still be visible.
+    results = retrieve(
+        "incident resolution", top_k=1000, session=db_session, allowed_services=[]
+    )
+    assert results  # sanity: cross-cutting content really exists in the corpus
+    assert all(r.service is None for r in results)
+
+
 def test_obviously_relevant_query_surfaces_a_plausible_document(db_session):
     # Broad smoke test only, no specific rank asserted, that's what the golden-set
     # evaluation runner measures precisely and separately. Accepts either the

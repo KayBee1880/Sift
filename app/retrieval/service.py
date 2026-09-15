@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Chunk, Document
@@ -28,7 +28,12 @@ class RetrievedChunk:
     cosine_similarity: float
 
 
-def retrieve(query: str, top_k: int, session: Session) -> list[RetrievedChunk]:
+def retrieve(
+    query: str,
+    top_k: int,
+    session: Session,
+    allowed_services: list[str] | None = None,
+) -> list[RetrievedChunk]:
     """Exact cosine-distance nearest-neighbor search over all persisted chunks.
 
     Baseline strategy: exact search (no ANN index), appropriate at 171 chunks where
@@ -39,6 +44,15 @@ def retrieve(query: str, top_k: int, session: Session) -> list[RetrievedChunk]:
 
     top_k larger than the number of stored chunks returns all available chunks
     rather than raising, SQL LIMIT naturally does this without special-casing.
+
+    allowed_services restricts results to documents whose service is either NULL
+    (cross-cutting, visible to everyone, mirroring Document.service's own
+    NULL-means-universal convention) or a member of allowed_services. None (the
+    default) means unrestricted — every existing caller (eval scripts, tests) that
+    doesn't pass this keeps its current, unfiltered behavior unchanged. Filtering
+    happens here, before any chunk is retrieved, not after generation: restricted
+    content must never enter the LLM's context window in the first place, filtering
+    the API response afterward would mean the model already saw it.
     """
     if top_k <= 0:
         raise ValueError(f"retrieve: top_k must be positive, got {top_k}")
@@ -63,6 +77,13 @@ def retrieve(query: str, top_k: int, session: Session) -> list[RetrievedChunk]:
             Document.category,
         )
         .join(Document, Chunk.document_id == Document.id)
+    )
+
+    if allowed_services is not None:
+        stmt = stmt.where(or_(Document.service.is_(None), Document.service.in_(allowed_services)))
+
+    stmt = (
+        stmt
         # Deterministic tie-breaking: ascending distance first (best match first),
         # then chunk id as a stable secondary key so two chunks at identical
         # distance always come back in the same order across runs, rather than

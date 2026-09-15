@@ -60,3 +60,20 @@ class Chunk(Base):
             "document_id", "section_index", "section_chunk_index", name="uq_chunk_provenance"
         ),
     )
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    # None (SQL NULL) means unrestricted access to every service, deliberately
+    # mirroring the same NULL-means-universal convention already used for
+    # Document.service (a NULL service there means "cross-cutting, visible
+    # regardless of team"). A non-null list restricts retrieval to only those
+    # service values — see app/retrieval/service.py's allowed_services filter.
+    allowed_services: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now()
+    )
