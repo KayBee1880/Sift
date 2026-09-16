@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     postgres_db: str = "sift"
     postgres_host: str = "localhost"
     postgres_port: int = 5432
+    # Empty locally (Docker Compose Postgres doesn't use SSL). Managed providers
+    # like Neon require it — set to "require" via environment variable in a real
+    # deployment, never hardcoded here, since it must stay off for local dev.
+    postgres_sslmode: str = ""
 
     groq_api_key: str = ""
     groq_model_name: str = "openai/gpt-oss-120b"
@@ -27,10 +31,13 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        return (
+        url = (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+        if self.postgres_sslmode:
+            url += f"?sslmode={self.postgres_sslmode}"
+        return url
 
 
 @lru_cache

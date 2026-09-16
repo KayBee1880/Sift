@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: sift-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      # Neon connection details — set these from your Neon project's connection
+      # string (see docs/DEPLOYMENT.md). sync: false means Render prompts for
+      # the real value in its dashboard rather than storing it in this
+      # committed file.
+      - key: POSTGRES_USER
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: POSTGRES_DB
+        sync: false
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_PORT
+        value: "5432"
+      # Neon requires SSL; local dev (Docker Compose) does not set this at all.
+      - key: POSTGRES_SSLMODE
+        value: "require"
+      - key: GROQ_API_KEY
+        sync: false
+      # Render generates a real random value on first deploy — never the
+      # checked-in local-dev placeholder from app/config.py.
+      - key: JWT_SECRET_KEY
+        generateValue: true

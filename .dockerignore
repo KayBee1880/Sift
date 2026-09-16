@@ -1,0 +1,21 @@
+# Never shipped in the deployed image: private engineering notebook, secrets,
+# and anything not needed to serve the API.
+.private/
+.env
+.git/
+.github/
+
+# Not needed at runtime: ingestion is a one-time step run locally against the
+# target database, not something the deployed container does itself (see
+# docs/DEPLOYMENT.md).
+corpus/
+eval/
+tests/
+
+# Local dev / caches, never useful inside the image.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+docker-compose.yml

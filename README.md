@@ -30,7 +30,7 @@ Enterprise engineering knowledge, runbooks, incident postmortems, architecture d
 ## What's actually working right now
 
 - **Ingestion**: a corpus of 29 real (fictional-company) markdown documents parsed, chunked (fixed-size sliding windows with measured overlap), and embedded locally (`sentence-transformers`, CPU-only), persisted to Postgres with idempotent re-ingestion (unchanged documents are skipped, not reprocessed).
-- **Retrieval**: exact cosine-distance search over pgvector, re-ranked by a cross-encoder, both measured against the golden set before adoption, with per-service access control enforced at the SQL query level so restricted content never enters a retrieved candidate list in the first place.
+- **Retrieval**: exact cosine-distance search over pgvector, re-ranked by a cross-encoder, both measured against the golden set before adoption (current configuration: Recall@5 0.9375, MRR 0.816 on the 40 answerable golden queries), with per-service access control enforced at the SQL query level so restricted content never enters a retrieved candidate list in the first place.
 - **Generation**: grounded, cited answers via a hosted free-tier model (Groq), with two-layer abstention (a retrieval-similarity floor plus a model-emitted sentinel) so the system says it doesn't know rather than guessing, and citations filtered to only the sources the model actually referenced, not every chunk it was shown.
 - **API**: `POST /auth/login` (JWT-based) and `POST /query`, the latter requiring authentication and enforcing the caller's service-level permissions before any retrieval happens.
 - **Evaluation harness**: a golden set of 46 hand-labeled queries across straightforward, near-duplicate, multi-document, adjacent-service, exact-code, and unanswerable categories; separate runners for retrieval quality (Recall@K, MRR), generation quality (fact coverage, citation validity, abstention accuracy, latency, token cost), and a small adversarial probe set for prompt-injection resistance.
@@ -168,6 +168,7 @@ uv run pytest
 ## Documentation
 
 - [Roadmap](docs/ROADMAP.md), vision, phase plan, and current scope
+- [Deployment](docs/DEPLOYMENT.md), free-tier deployment to Neon + Render
 
 ## License
 
