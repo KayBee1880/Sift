@@ -71,6 +71,23 @@ def test_provenance_fields_are_populated_and_consistent(db_session):
         assert r.text
 
 
+def test_overlapping_sections_reflect_the_dominant_section_and_sum_to_one(db_session):
+    # Fixed-size chunking (decision log, 2026-09-16) populates overlapping_sections
+    # for every real chunk in the corpus; this asserts the structural invariants
+    # eval/run_baseline.py's _chunk_covers depends on, against real persisted data,
+    # not just against the chunker's own unit tests.
+    results = retrieve("payments gateway timeout connection pool", top_k=10, session=db_session)
+    assert results  # sanity: there's real data to check
+    for r in results:
+        assert r.overlapping_sections
+        fractions = [entry["overlap_fraction"] for entry in r.overlapping_sections]
+        assert fractions == sorted(fractions, reverse=True)
+        assert abs(sum(fractions) - 1.0) < 0.001
+        # section_anchor is always the dominant (first, largest-fraction) entry —
+        # the honest, single-section citation label generation actually reads.
+        assert r.section_anchor == r.overlapping_sections[0]["section"]
+
+
 def test_repeated_query_returns_identical_order_deterministically(db_session):
     # True floating-point ties between two distinct real embeddings are not
     # practically reproducible to test directly, this instead confirms the

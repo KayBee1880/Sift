@@ -29,6 +29,7 @@ def _reranked_chunk(
         section_anchor=section_anchor,
         section_index=0,
         section_chunk_index=0,
+        overlapping_sections=None,
         text=text,
         cosine_distance=1.0 - cosine_similarity,
         cosine_similarity=cosine_similarity,

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # changes, normalization convention changes. Checked as part of the skip rule
 # alongside embedding_model_name, which acts as an independent structural backstop
 # rather than relying solely on this being bumped by hand every time it should be.
-CURRENT_PROCESSING_VERSION = 2
+CURRENT_PROCESSING_VERSION = 3
 
 IngestionStatus = Literal["created", "updated", "skipped"]
 
@@ -67,6 +67,7 @@ def _replace_document_chunks(
                 section_anchor=chunk.section_anchor,
                 section_index=chunk.section_index,
                 section_chunk_index=chunk.section_chunk_index,
+                overlapping_sections=chunk.overlapping_sections,
                 text=chunk.text,
                 embedding=vector,
             )

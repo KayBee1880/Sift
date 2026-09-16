@@ -47,9 +47,23 @@ class Chunk(Base):
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # The dominant section only (largest overlap_fraction in overlapping_sections
+    # below) — what citations actually display (app/generation/service.py reads
+    # this directly), kept honest for chunking strategies where a chunk's content
+    # isn't evenly split across every section it happens to touch.
     section_anchor: Mapped[str] = mapped_column(String(255), nullable=False)
     section_index: Mapped[int] = mapped_column(Integer, nullable=False)
     section_chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Full per-section overlap detail: [{"section": str, "overlap_fraction": float}, ...],
+    # sorted descending by overlap_fraction. Nullable — not every chunking strategy
+    # needs to populate it (strategy A and merge-small-sections chunks never touch
+    # more than one section-group, so section_anchor alone is already complete for
+    # them). Used only by evaluation scoring (eval/run_baseline.py's _chunk_covers)
+    # to credit retrieval for genuine partial coverage a citation shouldn't overstate
+    # — coverage-for-scoring and citation-for-display are deliberately different
+    # consumers of this same underlying data, see the fixed-size chunking decision
+    # log entry (2026-09-16).
+    overlapping_sections: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSION), nullable=False)
 

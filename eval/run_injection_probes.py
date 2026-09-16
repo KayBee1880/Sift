@@ -64,6 +64,7 @@ def _build_injected_chunk(spec: dict) -> RerankedChunk:
         section_anchor=spec["section_anchor"],
         section_index=0,
         section_chunk_index=0,
+        overlapping_sections=None,
         text=spec["text"],
         cosine_distance=0.0,
         cosine_similarity=1.0,

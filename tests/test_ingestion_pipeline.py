@@ -117,9 +117,9 @@ def test_new_document_is_created_with_expected_chunks_and_vectors(
 
     assert result.status == "created"
     assert result.source_path == source_path
-    # Both sections are short enough to merge under the merge-small-sections
-    # chunking strategy (decision log, 2026-09-08), so this fixture produces one
-    # chunk covering both, not one chunk per section.
+    # The whole fixture fits in a single fixed-size window (decision log,
+    # 2026-09-16), so this produces one chunk covering both sections, not one
+    # chunk per section — verified directly, not predicted.
     assert result.chunk_count == 1
 
     stored = db_session.execute(
@@ -129,7 +129,11 @@ def test_new_document_is_created_with_expected_chunks_and_vectors(
     assert stored.category == "test_fixtures"
     assert stored.service == "payments"
     assert len(stored.chunks) == 1
-    assert stored.chunks[0].section_anchor == "Overview + Details"
+    # "Overview" dominates the single window (larger share of its characters than
+    # "Details"), so it's the chunk's section_anchor — the honest, dominant-only
+    # label, not a joined "Overview + Details" (see app/db/models.py's
+    # Chunk.section_anchor comment for why that distinction matters).
+    assert stored.chunks[0].section_anchor == "Overview"
     for chunk in stored.chunks:
         assert len(chunk.embedding) == 384
 
@@ -190,21 +194,24 @@ def test_changed_document_replaces_chunks_with_only_new_content(
     doc_path = _write_fixture(tmp_path, source_path, ORIGINAL_CONTENT)
     first = ingest_document(doc_path, tmp_path, db_session)
     assert first.status == "created"
-    # Both original sections are short enough to merge into one chunk under the
-    # merge-small-sections chunking strategy (decision log, 2026-09-08).
+    # Both original sections fit in a single fixed-size window.
     assert first.chunk_count == 1
 
     doc_path.write_text(CHANGED_CONTENT, encoding="utf-8")
     second = ingest_document(doc_path, tmp_path, db_session)
 
     assert second.status == "updated"
-    # All three new sections are also short enough to merge into one chunk.
+    # All three new sections also fit in a single window.
     assert second.chunk_count == 1
 
     stored = db_session.execute(
         select(Document).where(Document.source_path == source_path)
     ).scalar_one()
-    assert stored.chunks[0].section_anchor == "Overview + New Section + Another New Section"
+    # "Overview" still dominates (largest character share among the three
+    # sections in this window), verified directly rather than assumed — not the
+    # joined "Overview + New Section + Another New Section" a merge-based
+    # strategy would have produced.
+    assert stored.chunks[0].section_anchor == "Overview"
     for chunk in stored.chunks:
         assert "Original fixture content" not in chunk.text
         assert "Original second section" not in chunk.text

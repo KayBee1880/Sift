@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![pgvector](https://img.shields.io/badge/pgvector-0.8-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
-[![Status](https://img.shields.io/badge/status-phase%201%20bootstrap-yellow)](#roadmap)
+[![Status](https://img.shields.io/badge/status-phase%204%20in%20progress-blue)](#roadmap)
 
 </div>
 
@@ -21,20 +21,22 @@ Enterprise engineering knowledge, runbooks, incident postmortems, architecture d
 
 ## Engineering approach
 
-- **No invented metrics.** Every retrieval and generation claim this project ever makes will be backed by an actual experiment run against a held-out golden query set, not asserted. Nothing has been measured yet, since the pipeline that would produce those numbers is not built yet, and this README will say so plainly until it is.
-- **Baseline before improvement.** The evaluation methodology is fixed before the pipeline it will evaluate: golden query ground truth is anchored at the document section level rather than the chunk level, specifically so it survives future chunking experiments instead of needing to be relabeled every time chunk size changes.
-- **Corpus-agnostic by construction, not by claim.** The database schema models document category and service as data (a hybrid of typed columns and a flexible metadata field), not as a hardcoded structure tied to one company's services.
-- **Caught and fixed, not just shipped.** The default dependency resolution for local embeddings pulled in a CUDA-enabled build of PyTorch, over 500MB of unused GPU packages for a project that only ever runs embeddings on CPU. Caught by actually inspecting the lockfile, not assumed correct, and fixed by pinning to PyTorch's CPU-only package index.
-- **Deliberate scope boundaries.** What is explicitly out of scope for the current phase, hybrid retrieval, reranking, auth, deployment, is documented against a phase in [docs/ROADMAP.md](docs/ROADMAP.md), not silently absent.
+- **No invented metrics.** Every retrieval and generation change is measured against a hand-labeled, 46-query golden set before being adopted, not asserted. Chunking strategy, reranking, and the citation-filtering logic have each gone through at least one real measure-then-decide cycle, several catching a genuine bug or a measurement artifact along the way rather than confirming the expected result on the first try.
+- **Baseline before improvement.** The evaluation methodology was fixed before the pipeline it evaluates: golden-set ground truth is anchored at the document-section level, not the chunk level, specifically so it survives chunking experiments instead of needing to be relabeled every time chunk boundaries change.
+- **Corpus-agnostic by construction, not by claim.** The database schema models document category and service as data (a hybrid of typed columns and a flexible metadata field), not as a hardcoded structure tied to one company's services. The same service field also underpins per-service access control.
+- **Caught and fixed, not just shipped.** A few examples out of several: the default dependency resolution for local embeddings pulled in a CUDA-enabled PyTorch build, 500MB of unused GPU packages for a CPU-only workload, fixed by pinning to PyTorch's CPU-only index. A generation-layer bug returned every retrieved chunk as a "citation" regardless of whether the model actually referenced it, caught by an inconsistent evaluation metric, not by inspection. Two real prompt-injection vulnerabilities (a malicious document instruction getting followed as if it were a command, and a full system-prompt leak) were found by adversarial testing and fixed before being called done.
+- **Deliberate scope boundaries.** What is explicitly out of scope for the current phase is documented against a phase in [docs/ROADMAP.md](docs/ROADMAP.md), not silently absent. Hybrid/lexical retrieval, for instance, was evaluated and deliberately de-prioritized based on evidence from real error analysis, not left unbuilt by oversight.
 
 ## What's actually working right now
 
-- A live PostgreSQL 16 database with the pgvector extension, running locally via Docker Compose and verified (not assumed) to have the `vector` extension installed
-- A two-table schema (`documents`, `chunks`) with a hybrid metadata model, defined in SQLAlchemy and applied via an Alembic migration, confirmed present in the running database
-- A typed, validated configuration layer (`pydantic-settings`) as the single source of truth for environment configuration
-- A CI pipeline (GitHub Actions, using `uv`) that lints and tests on every push, though no application tests exist yet since there is no application logic yet to test
+- **Ingestion**: a corpus of 29 real (fictional-company) markdown documents parsed, chunked (fixed-size sliding windows with measured overlap), and embedded locally (`sentence-transformers`, CPU-only), persisted to Postgres with idempotent re-ingestion (unchanged documents are skipped, not reprocessed).
+- **Retrieval**: exact cosine-distance search over pgvector, re-ranked by a cross-encoder, both measured against the golden set before adoption, with per-service access control enforced at the SQL query level so restricted content never enters a retrieved candidate list in the first place.
+- **Generation**: grounded, cited answers via a hosted free-tier model (Groq), with two-layer abstention (a retrieval-similarity floor plus a model-emitted sentinel) so the system says it doesn't know rather than guessing, and citations filtered to only the sources the model actually referenced, not every chunk it was shown.
+- **API**: `POST /auth/login` (JWT-based) and `POST /query`, the latter requiring authentication and enforcing the caller's service-level permissions before any retrieval happens.
+- **Evaluation harness**: a golden set of 46 hand-labeled queries across straightforward, near-duplicate, multi-document, adjacent-service, exact-code, and unanswerable categories; separate runners for retrieval quality (Recall@K, MRR), generation quality (fact coverage, citation validity, abstention accuracy, latency, token cost), and a small adversarial probe set for prompt-injection resistance.
+- **CI**: GitHub Actions (`uv`-based) that migrates a fresh database, ingests the corpus, lints, and runs the full test suite on every push.
 
-Nothing beyond that is implemented yet. There is no API, no ingestion pipeline, no embedding generation, no retrieval, no generation, no corpus documents, and no evaluation set. See [Roadmap](#roadmap).
+Not yet built: cloud deployment, structured observability, rate limiting/caching (deferred until a measured need justifies them), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
 
 ## Architecture
 
@@ -42,22 +44,24 @@ Nothing beyond that is implemented yet. There is no API, no ingestion pipeline, 
 
 ```mermaid
 flowchart LR
-    Models["SQLAlchemy models<br/>(Document, Chunk)"] -->|Alembic migration| PG[("PostgreSQL + pgvector<br/>documents, chunks tables")]
+    Corpus["Corpus documents"] --> Ingest["Ingestion<br/>(parse, chunk, embed)"]
+    Ingest --> PG[("PostgreSQL + pgvector<br/>documents, chunks, users")]
+    Login["POST /auth/login"] --> Auth["JWT issuance"]
+    Query["POST /query<br/>(bearer token)"] --> AuthCheck["Auth + permission check"]
+    AuthCheck --> Retrieval["Dense retrieval<br/>(service-filtered)"]
+    PG --> Retrieval
+    Retrieval --> Rerank["Cross-encoder rerank"]
+    Rerank --> Gen["Generation (Groq)<br/>+ abstention + citations"]
+    Gen --> Answer["Grounded answer"]
 ```
 
-**Target state** (the full system this is building toward):
+**Target state** (what's still ahead):
 
 ```mermaid
 flowchart LR
-    Corpus["Enterprise documents"] --> Ingest["Ingestion<br/>(parse, normalize, chunk)"]
-    Ingest --> Embed["Local embedding<br/>(sentence-transformers)"]
-    Embed --> PG[("PostgreSQL + pgvector")]
-    Query["User query"] --> API["FastAPI /query"]
-    API --> Retrieval["Semantic retrieval"]
-    PG --> Retrieval
-    Retrieval --> Context["Context construction"]
-    Context --> Gen["Generation (Groq)"]
-    Gen --> Answer["Grounded answer + citations"]
+    App["Current system"] --> Deploy["Cloud deployment<br/>(Phase 5)"]
+    Deploy --> Observability["Structured logging,<br/>metrics, tracing"]
+    App --> Perf["Measured performance work<br/>(Phase 6)<br/>only where justified"]
 ```
 
 ## Tech stack
@@ -66,29 +70,30 @@ flowchart LR
 |---|---|---|
 | Language and tooling | Python 3.12, `uv` | Reproducible, lockfile-pinned environment; CPU-only PyTorch explicitly pinned to avoid unnecessary CUDA dependencies |
 | Database | PostgreSQL 16, pgvector | Relational metadata and vector similarity search in one system, no separate vector database to operate |
-| ORM and migrations | SQLAlchemy 2.0, Alembic | Typed models, versioned schema instead of hand run SQL |
+| ORM and migrations | SQLAlchemy 2.0, Alembic | Typed models, versioned schema instead of hand-run SQL |
+| API | FastAPI | Typed request/response models, dependency-injected auth and DB sessions |
+| Embeddings | sentence-transformers (`BAAI/bge-small-en-v1.5`) | Local, free, CPU-viable embedding generation |
+| Reranking | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Measured Recall@5 and MRR improvement over dense retrieval alone before being adopted |
+| Generation | Groq (hosted, free tier) | Fast, free-tier-viable hosted inference for a portfolio-scale project |
+| Auth | `bcrypt`, `PyJWT` | Minimal, focused libraries for real password hashing and signed tokens, no heavier auth framework the project's scope doesn't need |
 | Configuration | pydantic-settings | Typed, validated environment configuration, fails fast on a missing or malformed value |
-| Local dev | Docker Compose | One command Postgres and pgvector for local development |
-| CI | GitHub Actions, `uv` | Lint and test on every push, using the same lockfile pinned dependencies as local dev |
+| Local dev | Docker Compose | One-command Postgres and pgvector for local development |
+| CI | GitHub Actions, `uv` | Migrates, ingests, lints, and tests on every push against the same lockfile-pinned dependencies as local dev |
 
 | Layer | Planned | Phase |
 |---|---|---|
-| API | FastAPI | Phase 1 (MVP) |
-| Embeddings | sentence-transformers (BAAI/bge-small-en-v1.5) | Phase 1 (MVP) |
-| Generation | Groq (hosted, free tier) | Phase 1 (MVP) |
-| Retrieval engineering | Hybrid and lexical search, reranking | Phase 2 |
-| Evaluation subsystem | Groundedness, faithfulness, latency, cost | Phase 3 |
-| Reliability and security | Auth, permissions, prompt injection defenses | Phase 4 |
+| Rate limiting and caching | Only where measurement justifies them | Phase 4 (remaining) |
 | Deployment and observability | Cloud hosting, structured logging, tracing | Phase 5 |
+| Performance optimization | Retrieval/embedding/generation latency, cost | Phase 6 |
 
 ## Roadmap
 
 - [x] Repository bootstrap, tooling, and local Postgres plus pgvector
 - [x] Database schema, migrated and verified live
-- [ ] Phase 1, baseline RAG *(current: corpus authoring and ingestion pipeline next)*
-- [ ] Phase 2, retrieval engineering
-- [ ] Phase 3, evaluation as a first class subsystem
-- [ ] Phase 4, reliability and security
+- [x] Phase 1, baseline RAG
+- [x] Phase 2, retrieval engineering
+- [x] Phase 3, evaluation as a first class subsystem
+- [ ] Phase 4, reliability and security *(prompt-injection defense and auth/access-control done; rate limiting and caching pending measured need)*
 - [ ] Phase 5, deployment and observability
 - [ ] Phase 6, performance optimization
 
@@ -99,18 +104,19 @@ Full phase breakdown and scope: [docs/ROADMAP.md](docs/ROADMAP.md).
 ```
 sift/
   app/
-    api/routes/     FastAPI routes (not yet implemented)
-    ingestion/      Parsing, normalization, chunking (not yet implemented)
-    embedding/      Local embedding generation (not yet implemented)
-    retrieval/      Semantic retrieval against pgvector (not yet implemented)
-    generation/     Prompt construction, Groq call, citations (not yet implemented)
-    schemas/        Pydantic request and response models (not yet implemented)
+    api/routes/     FastAPI routes (auth, query)
+    auth/           Password hashing, JWT issuance/verification, demo user seeding
+    ingestion/      Parsing, chunking, embedding, the corpus ingestion pipeline
+    embedding/      Local embedding generation
+    retrieval/      Dense retrieval + cross-encoder reranking against pgvector
+    generation/     Prompt construction, Groq call, citations, abstention
+    schemas/        Pydantic request and response models
     db/             SQLAlchemy models, session, Alembic migrations
     config.py       Typed application settings
-  corpus/           Demo document corpus (not yet authored)
-  eval/             Golden evaluation set and scoring (not yet built)
+  corpus/           Demo document corpus (29 documents, fictional company)
+  eval/             Golden query set and evaluation runners (retrieval, generation, injection probes)
   tests/            Pytest suite
-  docs/             Roadmap, and future architecture and evaluation docs
+  docs/             Roadmap
   .github/          CI workflow
 ```
 
@@ -133,12 +139,31 @@ Apply the database schema:
 uv run alembic upgrade head
 ```
 
+Ingest the demo corpus:
+```bash
+uv run python -m app.ingestion.ingest_corpus
+```
+
+Create demo users (a Payments-only account, a Checkout-only account, and an unrestricted admin — see `app/auth/seed_users.py`):
+```bash
+uv run python -m app.auth.seed_users
+```
+
+Add a real, free Groq API key to `.env` (get one at [console.groq.com](https://console.groq.com)), then run the API:
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Log in and query it:
+```bash
+curl -X POST localhost:8000/auth/login -d "username=admin&password=demo-admin-pw"
+curl -X POST localhost:8000/query -H "Authorization: Bearer <token from above>" -H "Content-Type: application/json" -d '{"query": "What channels does the Notifications service use?"}'
+```
+
 Run the test suite:
 ```bash
 uv run pytest
 ```
-
-There is no application to run yet since `app/main.py` has no implementation. This section will grow as the ingestion pipeline and API land.
 
 ## Documentation
 

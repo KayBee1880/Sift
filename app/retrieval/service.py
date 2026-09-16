@@ -19,6 +19,13 @@ class RetrievedChunk:
     section_anchor: str
     section_index: int
     section_chunk_index: int
+    # Full per-section overlap detail (None for chunking strategies that never
+    # populated it, e.g. any chunk ingested before 2026-09-16). Used only by
+    # evaluation scoring (eval/run_baseline.py's _chunk_covers) to credit
+    # retrieval for genuine partial section coverage a citation shouldn't
+    # overstate — section_anchor above already holds the honest, dominant-only
+    # label generation actually cites.
+    overlapping_sections: list[dict] | None
     text: str
     # cosine_distance is canonical: it's exactly what pgvector's <=> operator
     # computed and what results are ordered by. cosine_similarity (1 - distance)
@@ -68,6 +75,7 @@ def retrieve(
             Chunk.section_anchor,
             Chunk.section_index,
             Chunk.section_chunk_index,
+            Chunk.overlapping_sections,
             Chunk.text,
             distance.label("cosine_distance"),
             Document.slug.label("document_slug"),
@@ -106,6 +114,7 @@ def retrieve(
             section_anchor=row.section_anchor,
             section_index=row.section_index,
             section_chunk_index=row.section_chunk_index,
+            overlapping_sections=row.overlapping_sections,
             text=row.text,
             cosine_distance=row.cosine_distance,
             cosine_similarity=1.0 - row.cosine_distance,

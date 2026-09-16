@@ -16,6 +16,7 @@ def _chunk(chunk_id: int, document_title: str, section_anchor: str, text: str) -
         section_anchor=section_anchor,
         section_index=0,
         section_chunk_index=0,
+        overlapping_sections=None,
         text=text,
         cosine_distance=0.5,
         cosine_similarity=0.5,

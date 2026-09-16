@@ -35,23 +35,35 @@ def _evidence_key(entry: dict) -> tuple[str, str | None]:
 def _chunk_covers(chunk, document: str, section: str | None) -> bool:
     """Whether a retrieved chunk covers a required/acceptable (document, section).
 
-    Not exact (document, section_anchor) equality: since the merge-small-sections
-    chunking strategy (decision log, 2026-09-08), section_anchor can be a compound
-    string like "Resolution + Follow-up Actions" for a chunk covering more than one
-    original section. Exact-identity matching (the original strategy-A-era check)
-    would silently score a chunk that genuinely contains the required section's
-    content as a miss whenever that section got merged with a neighbor, which is
-    the common case now, not a rare edge case. Splitting on " + " and checking
-    membership handles both merged and unmerged section_anchor values uniformly,
-    since an unmerged anchor is just a one-element list under this same check.
+    Not exact (document, section_anchor) equality. Two chunking-strategy eras have
+    each needed a different reason for this:
+
+    - merge-small-sections (decision log, 2026-09-08): section_anchor could be a
+      compound string like "Resolution + Follow-up Actions" for a chunk covering
+      more than one original section, contiguously merged.
+    - fixed-size sliding-window chunking (decision log, 2026-09-16, current):
+      section_anchor holds only the *dominant* section (the one with the largest
+      overlap), deliberately, so citations stay honest about what a chunk is
+      mostly about — see app/db/models.py's Chunk.section_anchor comment. A chunk
+      can still genuinely, partially cover a required section without it being
+      dominant, so coverage-for-scoring has to check the full picture
+      (chunk.overlapping_sections) that citation-for-display intentionally
+      doesn't use.
+
+    Checking section_anchor directly (still correct on its own for the dominant
+    case, and for any older-era chunk where overlapping_sections is None) plus
+    membership in overlapping_sections (when present) covers both eras uniformly,
+    without assuming which one produced any given chunk.
     """
     if chunk.document_slug != document:
         return False
     if section is None:
         return True
-    if chunk.section_anchor is None:
-        return False
-    return section in chunk.section_anchor.split(" + ")
+    if chunk.section_anchor == section:
+        return True
+    if chunk.overlapping_sections:
+        return any(entry["section"] == section for entry in chunk.overlapping_sections)
+    return False
 
 
 def _score_answerable_query(query: dict, retrieved: list) -> dict:
