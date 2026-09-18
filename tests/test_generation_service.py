@@ -177,6 +177,25 @@ def test_generate_answer_filters_citations_to_those_actually_cited(monkeypatch):
     assert [c.ref for c in result.citations] == [1]
 
 
+def test_generate_answer_recognizes_cjk_style_citation_brackets(monkeypatch):
+    # The model has been observed occasionally citing with "【N】" (CJK-style
+    # lenticular brackets) instead of the instructed ASCII "[N]", despite
+    # SYSTEM_PROMPT explicitly forbidding it — a real, live "citations": []
+    # gap this exact scenario caused on a deployed POST /query response
+    # (decision log, 2026-09-17). Citations must still be recognized, not
+    # silently dropped, when this happens.
+    monkeypatch.setattr(
+        "app.generation.service.httpx.post",
+        lambda *a, **k: _FakeResponse("Notifications sends email and SMS【1】."),
+    )
+
+    chunks = [_reranked_chunk(1, "Notifications Overview", "Overview", "Sends via email and SMS.")]
+    result = generate_answer("what channels does notifications use", chunks)
+
+    assert result.abstained is False
+    assert [c.ref for c in result.citations] == [1]
+
+
 def test_generate_answer_detects_model_abstention_sentinel(monkeypatch):
     monkeypatch.setattr(
         "app.generation.service.httpx.post",

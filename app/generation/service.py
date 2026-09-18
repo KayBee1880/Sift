@@ -98,7 +98,14 @@ def build_context(chunks: list[RerankedChunk]) -> tuple[str, list[Citation]]:
     return "\n\n".join(blocks), citations
 
 
-CITATION_REF_PATTERN = re.compile(r"\[(\d+)\]")
+# Matches the instructed ASCII "[N]" format, plus "【N】" (CJK-style lenticular
+# brackets, U+3010/U+3011) — an alternate citation convention this model has been
+# observed to occasionally fall back to despite SYSTEM_PROMPT explicitly forbidding
+# it (first seen 2026-09-12 during injection-probe testing, confirmed causing a
+# real, live "citations": [] gap on a genuine POST /query response on 2026-09-17).
+# Recognizing it defensively here doesn't rely on the model's prompt-following being
+# perfect, the same reasoning behind having two abstention layers instead of one.
+CITATION_REF_PATTERN = re.compile(r"[\[【](\d+)[\]】]")
 
 
 def _cited_refs(answer: str) -> set[int]:

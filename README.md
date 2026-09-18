@@ -7,11 +7,13 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![pgvector](https://img.shields.io/badge/pgvector-0.8-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
-[![Status](https://img.shields.io/badge/status-phase%204%20in%20progress-blue)](#roadmap)
+[![Status](https://img.shields.io/badge/status-phase%205%20in%20progress-blue)](#roadmap)
 
 </div>
 
 ---
+
+**Live demo:** [sift-api-rn1a.onrender.com](https://sift-api-rn1a.onrender.com) (free-tier hosting — the first request after a period of inactivity can take up to a minute while the instance wakes up). See [Local setup](#local-setup) below for demo login credentials and example requests.
 
 Engineers on call, or just trying to find the right runbook, waste time checking documents one at a time because retrieval over a real technical knowledge base is genuinely hard: terminology mismatch, near-duplicate documents, exact error codes that semantic search misses, and questions with no good answer at all. Sift treats that as the actual engineering problem, not something a single LLM call papers over. Retrieval and generation quality are built and measured separately, with a real baseline before any improvement is claimed.
 
@@ -36,7 +38,9 @@ Enterprise engineering knowledge, runbooks, incident postmortems, architecture d
 - **Evaluation harness**: a golden set of 46 hand-labeled queries across straightforward, near-duplicate, multi-document, adjacent-service, exact-code, and unanswerable categories; separate runners for retrieval quality (Recall@K, MRR), generation quality (fact coverage, citation validity, abstention accuracy, latency, token cost), and a small adversarial probe set for prompt-injection resistance.
 - **CI**: GitHub Actions (`uv`-based) that migrates a fresh database, ingests the corpus, lints, and runs the full test suite on every push.
 
-Not yet built: cloud deployment, structured observability, rate limiting/caching (deferred until a measured need justifies them), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
+- **Deployment**: live on free-tier hosting (Neon for Postgres+pgvector, Render for the API, both verified genuinely free at time of deployment — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), model weights baked into the deployed image so cold starts never depend on Hugging Face Hub availability.
+
+Not yet built: structured observability (metrics, tracing — deferred until real traffic gives something worth observing), rate limiting/caching (deferred until a measured need justifies them), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
 
 ## Architecture
 
@@ -59,8 +63,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    App["Current system"] --> Deploy["Cloud deployment<br/>(Phase 5)"]
-    Deploy --> Observability["Structured logging,<br/>metrics, tracing"]
+    App["Deployed system<br/>(Neon + Render)"] --> Observability["Structured metrics, tracing<br/>(Phase 5, remaining)<br/>once real traffic exists"]
     App --> Perf["Measured performance work<br/>(Phase 6)<br/>only where justified"]
 ```
 
@@ -94,7 +97,7 @@ flowchart LR
 - [x] Phase 2, retrieval engineering
 - [x] Phase 3, evaluation as a first class subsystem
 - [ ] Phase 4, reliability and security *(prompt-injection defense and auth/access-control done; rate limiting and caching pending measured need)*
-- [ ] Phase 5, deployment and observability
+- [ ] Phase 5, deployment and observability *(live on free-tier hosting; structured metrics/tracing pending real traffic to justify them)*
 - [ ] Phase 6, performance optimization
 
 Full phase breakdown and scope: [docs/ROADMAP.md](docs/ROADMAP.md).
