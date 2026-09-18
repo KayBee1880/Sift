@@ -89,12 +89,23 @@ curl -X POST https://<your-render-url>/query -H "Authorization: Bearer <token>" 
   first request after a period of no traffic will be slow (the container
   has to start, and the embedding/reranker models have to load into
   memory) before the API responds.
-- **512MB RAM is a real, unverified constraint, not a guarantee.** Loading
-  both transformer models (embedding + reranker) plus the PyTorch CPU
-  runtime's own overhead on Render's free tier hasn't been confirmed to
-  fit — if the service crashes or fails to start, out-of-memory is the
-  first thing to check, and the honest next step would be measuring
-  actual memory usage, not assuming a fix without data.
+- **512MB RAM is a real, confirmed constraint, not just a theoretical
+  risk.** During real usage testing (2026-09-17/18), the live instance
+  genuinely exceeded its memory limit and was auto-restarted by Render
+  after a short sequence of real `/query` requests (a couple of
+  successful calls, then a `502` on the next one, with Render's own
+  incident notification explicitly citing "exceeded its memory limit").
+  After the automatic restart, subsequent requests succeeded normally —
+  so this reads as intermittent memory pressure building up across
+  requests, not a hard "never fits" failure on every single call.
+  **Not yet root-caused further** (e.g., via Render's memory-usage graph
+  over time, to see whether baseline idle memory is already near the
+  limit or whether it's specifically request-handling that spikes it) —
+  a deliberate choice to document this honestly as a known, live,
+  confirmed limitation for now rather than chase a fix immediately. If a
+  `502` shows up, retrying after a few seconds (Render auto-restarts) is
+  the practical workaround; a real fix would start with that memory
+  graph, not a guess.
 - **The demo credentials are intentionally public** (`app/auth/seed_users.py`
   documents this choice) — they protect a small, fictional, non-sensitive
   demo corpus, the same trust level as the project's other checked-in

@@ -13,7 +13,7 @@
 
 ---
 
-**Live demo:** [sift-api-rn1a.onrender.com](https://sift-api-rn1a.onrender.com) (free-tier hosting — the first request after a period of inactivity can take up to a minute while the instance wakes up). See [Local setup](#local-setup) below for demo login credentials and example requests.
+**Live demo:** [sift-api-rn1a.onrender.com](https://sift-api-rn1a.onrender.com) (free-tier hosting — the first request after a period of inactivity can take up to a minute while the instance wakes up, and the instance may occasionally restart under real load since 512MB is a tight fit for two loaded models; a retry after a few seconds resolves it — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the confirmed details). See [Local setup](#local-setup) below for demo login credentials and example requests.
 
 Engineers on call, or just trying to find the right runbook, waste time checking documents one at a time because retrieval over a real technical knowledge base is genuinely hard: terminology mismatch, near-duplicate documents, exact error codes that semantic search misses, and questions with no good answer at all. Sift treats that as the actual engineering problem, not something a single LLM call papers over. Retrieval and generation quality are built and measured separately, with a real baseline before any improvement is claimed.
 
