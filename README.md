@@ -37,10 +37,10 @@ Enterprise engineering knowledge, runbooks, incident postmortems, architecture d
 - **API**: `POST /auth/login` (JWT-based) and `POST /query`, the latter requiring authentication and enforcing the caller's service-level permissions before any retrieval happens.
 - **Evaluation harness**: a golden set of 46 hand-labeled queries across straightforward, near-duplicate, multi-document, adjacent-service, exact-code, and unanswerable categories; separate runners for retrieval quality (Recall@K, MRR), generation quality (fact coverage, citation validity, abstention accuracy, latency, token cost), and a small adversarial probe set for prompt-injection resistance.
 - **CI**: GitHub Actions (`uv`-based) that migrates a fresh database, ingests the corpus, lints, and runs the full test suite on every push.
-
 - **Deployment**: live on free-tier hosting (Neon for Postgres+pgvector, Render for the API, both verified genuinely free at time of deployment — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), model weights baked into the deployed image so cold starts never depend on Hugging Face Hub availability.
+- **Observability**: structured (JSON) request logging, built in direct response to a real out-of-memory incident on the live deployment rather than speculatively — every request logged with method/path/status/duration, `/query` additionally logging the account, abstention outcome, citation count, and a retrieval-vs-generation timing split.
 
-Not yet built: structured observability (metrics, tracing — deferred until real traffic gives something worth observing), rate limiting/caching (deferred until a measured need justifies them), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
+Not yet built: metrics dashboards and tracing (still no real justification for that heavier tooling beyond structured logs), rate limiting/caching (deferred until a measured need justifies them), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
 
 ## Architecture
 
@@ -97,7 +97,7 @@ flowchart LR
 - [x] Phase 2, retrieval engineering
 - [x] Phase 3, evaluation as a first class subsystem
 - [ ] Phase 4, reliability and security *(prompt-injection defense and auth/access-control done; rate limiting and caching pending measured need)*
-- [ ] Phase 5, deployment and observability *(live on free-tier hosting; structured metrics/tracing pending real traffic to justify them)*
+- [ ] Phase 5, deployment and observability *(live on free-tier hosting; structured request logging shipped; metrics/tracing still pending real justification)*
 - [ ] Phase 6, performance optimization
 
 Full phase breakdown and scope: [docs/ROADMAP.md](docs/ROADMAP.md).
