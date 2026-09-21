@@ -65,17 +65,38 @@ cost measurement, and a more systematic evaluation harness.
 
 Introduced once the system is capable enough to need it: authentication/authorization,
 document-level access control, prompt-injection defenses, data-leakage prevention,
-failure handling, caching and rate limiting (only where measurement justifies them).
+failure handling, caching and rate limiting.
+
+Real JWT auth and per-service access control (enforced at the retrieval SQL boundary,
+not post-hoc) and adversarial prompt-injection testing (two real vulnerabilities found
+and fixed) shipped first. Rate limiting and caching followed once the deployed system
+had a concrete, non-hypothetical reason to need them: a live, public URL sharing one
+free-tier Groq API quota, not a projected future traffic pattern. A sliding-window
+limiter and an in-memory TTL cache, both scoped to this project's single-instance
+deployment (a multi-instance rollout would need a shared store instead).
 
 ### Phase 5 — Deployment & Observability
 
 Cloud deployment (free-tier infrastructure), structured logging, metrics, tracing,
 health checks.
 
+Live on Neon + Render. Structured JSON request logging was built in direct response to
+a real, confirmed out-of-memory incident, not speculatively. A `/health` endpoint and a
+`/metrics` JSON counter snapshot cover the rest of this phase's scope at a level
+proportionate to this project's actual scale — Prometheus/Grafana/OpenTelemetry-grade
+tracing infrastructure was deliberately not built, since there is still no measured
+traffic volume that would justify operating it.
+
 ### Phase 6 — Performance Optimization
 
 Measurement-driven optimization: retrieval latency, embedding throughput, LLM latency,
 caching effectiveness, concurrency, cost.
+
+With no organic user traffic to measure yet, this phase is driven by a disclosed
+synthetic load-testing harness (`eval/run_load_test.py`) instead: real HTTP requests,
+fired deliberately rather than by real users, measuring real latency, throughput, and
+cache-effectiveness numbers against a running instance. Reported honestly as synthetic
+load throughout, never implied to be an organic-traffic measurement.
 
 ## How Scope Changes
 

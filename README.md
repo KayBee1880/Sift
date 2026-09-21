@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![pgvector](https://img.shields.io/badge/pgvector-0.8-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
-[![Status](https://img.shields.io/badge/status-phase%205%20in%20progress-blue)](#roadmap)
+[![Status](https://img.shields.io/badge/status-all%20phases%20shipped-blue)](#roadmap)
 
 </div>
 
@@ -38,34 +38,33 @@ Enterprise engineering knowledge, runbooks, incident postmortems, architecture d
 - **Evaluation harness**: a golden set of 46 hand-labeled queries across straightforward, near-duplicate, multi-document, adjacent-service, exact-code, and unanswerable categories; separate runners for retrieval quality (Recall@K, MRR), generation quality (fact coverage, citation validity, abstention accuracy, latency, token cost), and a small adversarial probe set for prompt-injection resistance.
 - **CI**: GitHub Actions (`uv`-based) that migrates a fresh database, ingests the corpus, lints, and runs the full test suite on every push.
 - **Deployment**: live on free-tier hosting (Neon for Postgres+pgvector, Render for the API, both verified genuinely free at time of deployment — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), model weights baked into the deployed image so cold starts never depend on Hugging Face Hub availability.
-- **Observability**: structured (JSON) request logging, built in direct response to a real out-of-memory incident on the live deployment rather than speculatively — every request logged with method/path/status/duration, `/query` additionally logging the account, abstention outcome, citation count, and a retrieval-vs-generation timing split.
+- **Observability**: structured (JSON) request logging, a `/health` check, and a `/metrics` JSON counter snapshot — deliberately not Prometheus/Grafana/OpenTelemetry, since there's still no measured need for that heavier tooling at this scale.
+- **Reliability**: per-account rate limiting and in-memory response caching, both justified by a concrete, already-true constraint (a live, public deployment sharing one free-tier Groq API quota), not a hypothetical future one.
+- **Performance**: a synthetic load-testing script (`eval/run_load_test.py`) fires real concurrent HTTP requests at a running instance and reports real latency/throughput/cache-effectiveness numbers, honestly labeled synthetic rather than organic traffic, since no real user base exists yet to measure.
 
-Not yet built: metrics dashboards and tracing (still no real justification for that heavier tooling beyond structured logs), rate limiting/caching (deferred until a measured need justifies them), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
+Not yet built: metrics dashboards/tracing beyond the JSON counter snapshot above (still no real justification for that heavier tooling), and the bigger hybrid/lexical retrieval investment (evaluated, deliberately not pursued). See [Roadmap](#roadmap).
 
 ## Architecture
-
-**Current state** (what's actually running):
 
 ```mermaid
 flowchart LR
     Corpus["Corpus documents"] --> Ingest["Ingestion<br/>(parse, chunk, embed)"]
     Ingest --> PG[("PostgreSQL + pgvector<br/>documents, chunks, users")]
     Login["POST /auth/login"] --> Auth["JWT issuance"]
-    Query["POST /query<br/>(bearer token)"] --> AuthCheck["Auth + permission check"]
+    Query["POST /query<br/>(bearer token)"] --> RateLimit["Rate limit + cache check"]
+    RateLimit --> AuthCheck["Auth + permission check"]
     AuthCheck --> Retrieval["Dense retrieval<br/>(service-filtered)"]
     PG --> Retrieval
     Retrieval --> Rerank["Cross-encoder rerank"]
     Rerank --> Gen["Generation (Groq)<br/>+ abstention + citations"]
     Gen --> Answer["Grounded answer"]
+    Answer -.-> Logs["Structured logs +<br/>/health, /metrics"]
 ```
 
-**Target state** (what's still ahead):
-
-```mermaid
-flowchart LR
-    App["Deployed system<br/>(Neon + Render)"] --> Observability["Structured metrics, tracing<br/>(Phase 5, remaining)<br/>once real traffic exists"]
-    App --> Perf["Measured performance work<br/>(Phase 6)<br/>only where justified"]
-```
+Not built beyond what's above: dashboards/tracing infrastructure
+(Prometheus/Grafana/OpenTelemetry) and hybrid/lexical retrieval, both
+deliberately deferred — see the "not yet built" note above and
+[docs/ROADMAP.md](docs/ROADMAP.md) for why.
 
 ## Tech stack
 
@@ -83,12 +82,6 @@ flowchart LR
 | Local dev | Docker Compose | One-command Postgres and pgvector for local development |
 | CI | GitHub Actions, `uv` | Migrates, ingests, lints, and tests on every push against the same lockfile-pinned dependencies as local dev |
 
-| Layer | Planned | Phase |
-|---|---|---|
-| Rate limiting and caching | Only where measurement justifies them | Phase 4 (remaining) |
-| Deployment and observability | Cloud hosting, structured logging, tracing | Phase 5 |
-| Performance optimization | Retrieval/embedding/generation latency, cost | Phase 6 |
-
 ## Roadmap
 
 - [x] Repository bootstrap, tooling, and local Postgres plus pgvector
@@ -96,9 +89,9 @@ flowchart LR
 - [x] Phase 1, baseline RAG
 - [x] Phase 2, retrieval engineering
 - [x] Phase 3, evaluation as a first class subsystem
-- [ ] Phase 4, reliability and security *(prompt-injection defense and auth/access-control done; rate limiting and caching pending measured need)*
-- [ ] Phase 5, deployment and observability *(live on free-tier hosting; structured request logging shipped; metrics/tracing still pending real justification)*
-- [ ] Phase 6, performance optimization
+- [x] Phase 4, reliability and security *(auth/access-control, prompt-injection defense, per-account rate limiting, response caching; heavier caching layers beyond in-memory TTL left undone since a single instance has no need for a shared cache)*
+- [x] Phase 5, deployment and observability *(live on free-tier hosting; structured request logging, health check, metrics snapshot; Prometheus/Grafana/tracing deliberately not built, no measured need for that scale of tooling)*
+- [x] Phase 6, performance optimization *(synthetic load-testing harness measuring real latency/throughput/cache-effectiveness under generated load, honestly labeled synthetic since no organic traffic exists yet)*
 
 Full phase breakdown and scope: [docs/ROADMAP.md](docs/ROADMAP.md).
 

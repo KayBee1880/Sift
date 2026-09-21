@@ -1,9 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import app.rate_limiting as rate_limiting_module
 from app.auth.dependencies import get_current_user
 from app.db.models import User
 from app.main import app
+from app.metrics import metrics
+
+# Shared-singleton reset between tests (rate limiter, cache, metrics) lives
+# in tests/conftest.py, autouse for the whole suite, not just this file.
 
 
 class _FakeResponse:
@@ -98,3 +103,69 @@ def test_query_endpoint_passes_current_users_allowed_services_to_retrieval(monke
 
     assert response.status_code == 200
     assert captured["allowed_services"] == ["payments"]
+
+
+def test_query_endpoint_returns_cached_answer_without_recalling_the_model(
+    monkeypatch, authenticated_client
+):
+    call_count = {"n": 0}
+
+    def _counting_post(*args, **kwargs):
+        call_count["n"] += 1
+        return _FakeResponse("Notifications sends messages via email and SMS [1].")
+
+    monkeypatch.setattr("app.generation.service.httpx.post", _counting_post)
+
+    first = authenticated_client.post(
+        "/query", json={"query": "What channels does the Notifications service use?"}
+    )
+    second = authenticated_client.post(
+        "/query", json={"query": "What channels does the Notifications service use?"}
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    # The second call was served from cache, not a second real Groq call.
+    assert call_count["n"] == 1
+
+
+def test_query_endpoint_returns_429_after_exceeding_the_rate_limit(
+    monkeypatch, authenticated_client
+):
+    monkeypatch.setattr(
+        rate_limiting_module,
+        "query_rate_limiter",
+        rate_limiting_module.SlidingWindowRateLimiter(max_requests=1, window_seconds=60),
+    )
+    monkeypatch.setattr(
+        "app.generation.service.httpx.post",
+        lambda *a, **k: _FakeResponse("Notifications sends messages via email and SMS [1]."),
+    )
+
+    first = authenticated_client.post(
+        "/query", json={"query": "What channels does the Notifications service use?"}
+    )
+    # A different query, so a cache hit can't be the reason this succeeds or
+    # fails — this test is isolating rate-limiting behavior specifically.
+    second = authenticated_client.post(
+        "/query", json={"query": "What is the on-call escalation policy?"}
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+
+
+def test_query_endpoint_increments_metrics_counters(monkeypatch, authenticated_client):
+    monkeypatch.setattr(
+        "app.generation.service.httpx.post",
+        lambda *a, **k: _FakeResponse("INSUFFICIENT_EVIDENCE: no relevant excerpts."),
+    )
+
+    authenticated_client.post(
+        "/query", json={"query": "What is the capital of a country not in this corpus?"}
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot["query.total"] == 1
+    assert snapshot["query.abstained"] == 1

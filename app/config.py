@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
     embedding_dimension: int = 384
 
+    # Phase 4: protects the shared free-tier Groq quota on the live public
+    # deployment from being exhausted by one caller, not a guess at future
+    # scale. Per-account, sliding window.
+    rate_limit_max_requests: int = 10
+    rate_limit_window_seconds: float = 60.0
+
+    # Phase 4: identical (query, permission-set) requests skip a redundant
+    # Groq call. In-memory, single-process — correct for this project's
+    # single Render instance.
+    query_cache_max_size: int = 200
+    query_cache_ttl_seconds: float = 300.0
+
     @property
     def database_url(self) -> str:
         url = (

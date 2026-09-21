@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.api.routes.auth import router as auth_router
 from app.api.routes.query import router as query_router
 from app.logging_config import setup_logging
+from app.metrics import metrics
 
 setup_logging()
 logger = logging.getLogger("sift.request")
@@ -14,6 +15,20 @@ logger = logging.getLogger("sift.request")
 app = FastAPI(title="Sift")
 app.include_router(auth_router)
 app.include_router(query_router)
+
+
+@app.get("/health")
+def health() -> dict:
+    # Unauthenticated on purpose: a load balancer or uptime monitor hitting
+    # this shouldn't need credentials, standard practice for a health check.
+    return {"status": "ok"}
+
+
+@app.get("/metrics")
+def get_metrics() -> dict:
+    # A JSON counter snapshot, not Prometheus/OpenTelemetry: this project's
+    # scale has no measured need for that infrastructure. See app/metrics.py.
+    return metrics.snapshot()
 
 
 @app.middleware("http")
