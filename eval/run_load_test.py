@@ -42,24 +42,28 @@ DEMO_PASSWORD = os.environ.get("SIFT_LOAD_TEST_PASSWORD", "demo-admin-pw")
 
 RESULTS_PATH = Path(".private/experiments/results/load_test_v1.json")
 
-# Comfortably under the default rate limit (10 requests / 60s per account,
-# see app/config.py) so the cold pass measures real pipeline latency, not
-# the rate limiter kicking in partway through it.
+# Kept small (4, not 8) so cold+warm together (8 total: cold pass runs
+# these once, warm pass runs the identical 4 again) stay comfortably under
+# the default rate limit (10 requests / 60s per account, see app/config.py)
+# with 2 requests of headroom left for the burst pass below. An earlier,
+# 8-query version of this list left no headroom at all: cold alone consumed
+# 8 of the 10-request budget, so the warm pass (fired immediately after, in
+# the same window) got rate-limited for 5 of its 8 requests — the two that
+# got through still gave a real, correct cache-effectiveness reading, but
+# off a thinner sample than intended. Confirmed live on 2026-09-21, see the
+# decision log and .private/experiments/results/load_test_v1.json.
 COLD_QUERIES = [
     "What channels does the Notifications service use?",
     "What is the on-call escalation policy?",
     "How is a payment refund processed?",
     "What triggers a checkout timeout?",
-    "How does the Authentication service issue tokens?",
-    "What is the incident severity classification scheme?",
-    "How is the Analytics service's data pipeline scheduled?",
-    "What is the deployment rollback procedure?",
 ]
-# Extra, distinct queries fired immediately after the cold+warm passes,
-# deliberately intended to push this account past its remaining rate-limit
-# budget within the same 60s window — a real, over-HTTP verification that
-# the limiter built in Phase 4 actually engages under concurrent load, not
-# just in the in-process unit tests.
+# Extra, distinct queries fired immediately after the cold+warm passes
+# (8 requests already spent, 2 of the 10-request budget left) — deliberately
+# intended to push this account past its remaining rate-limit budget within
+# the same 60s window, a real, over-HTTP verification that the limiter built
+# in Phase 4 actually engages under concurrent load, not just in the
+# in-process unit tests.
 BURST_QUERIES = [
     "What is the data retention policy?",
     "How are secrets rotated?",

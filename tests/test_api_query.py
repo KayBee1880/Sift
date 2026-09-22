@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -169,3 +170,22 @@ def test_query_endpoint_increments_metrics_counters(monkeypatch, authenticated_c
     snapshot = metrics.snapshot()
     assert snapshot["query.total"] == 1
     assert snapshot["query.abstained"] == 1
+
+
+def test_query_endpoint_returns_503_when_groq_stays_rate_limited(monkeypatch, authenticated_client):
+    # Real, confirmed under a synthetic load test (2026-09-21): 4 concurrent
+    # generation calls exceeded Groq's own free-tier rate limit and stayed
+    # rate-limited past _call_groq's retry budget, raising httpx.HTTPStatusError
+    # unhandled — this proves it now surfaces as a clean 503, not a raw 500.
+    def _always_rate_limited(*args, **kwargs):
+        request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+        return httpx.Response(429, request=request)
+
+    monkeypatch.setattr("app.generation.service.time.sleep", lambda seconds: None)
+    monkeypatch.setattr("app.generation.service.httpx.post", _always_rate_limited)
+
+    response = authenticated_client.post(
+        "/query", json={"query": "What channels does the Notifications service use?"}
+    )
+
+    assert response.status_code == 503
